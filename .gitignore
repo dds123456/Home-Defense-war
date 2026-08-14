@@ -13,6 +13,7 @@ tools/shot-*.png
 # 本地参考素材与工具缓存（不影响线上部署）
 assets/
 .workbuddy/
+.vercel/
 11
 *.egg-info/
 /.env
@@ -94,3 +95,5 @@ logs/
 *.xlsx
 *.csv
 .cozeproj/reduction
+
+.vercel

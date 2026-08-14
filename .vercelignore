@@ -1,0 +1,8 @@
+# 不参与 Vercel 部署的本地文件
+assets/
+.workbuddy/
+.git/
+.vercel/
+11
+tools/shot-*.png
+output.log
