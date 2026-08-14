@@ -1,0 +1,262 @@
+import { createRequire } from 'module';
+
+const require = createRequire('file:///C:/Users/dingd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright-core/index.js');
+const { chromium } = require('playwright-core');
+
+const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:5000/';
+const mode = process.argv[2] || 'basic';
+
+const errors = [];
+
+function attachListeners(page) {
+  page.on('pageerror', (err) => {
+    const s = String(err);
+    if (!s.includes('favicon')) errors.push(s);
+  });
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && !msg.text().includes('favicon')) errors.push(`console: ${msg.text()}`);
+  });
+}
+
+const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+attachListeners(page);
+
+await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+await page.waitForSelector('#main-menu', { state: 'visible', timeout: 8000 });
+
+async function enterFirstLevel() {
+  await page.click('#btn-start-menu');
+  await page.waitForSelector('#level-select', { state: 'visible', timeout: 5000 });
+  await page.locator('.level-card').first().click();
+  await page.waitForTimeout(800);
+}
+
+if (mode === 'basic') {
+  try {
+    await page.click('#btn-start-menu');
+    await page.waitForSelector('#level-select', { state: 'visible', timeout: 5000 });
+    const levelCards = await page.locator('.level-card').count();
+    await page.locator('.level-card').first().click();
+    await page.waitForTimeout(1200);
+    const hud = await page.evaluate(() => ({
+      gold: document.getElementById('gold')?.textContent,
+      hp: document.getElementById('base-hp')?.textContent,
+      wave: document.getElementById('wave-num')?.textContent,
+      heroVisible: document.getElementById('hero-panel')?.style.display !== 'none'
+    }));
+    await page.screenshot({ path: 'tools/shot-basic.png' });
+    console.log(JSON.stringify({ mode, levelCards, hud, errors }, null, 2));
+  } catch (err) {
+    await page.screenshot({ path: 'tools/shot-fail.png' });
+    console.log(JSON.stringify({ mode, fail: String(err), errors }, null, 2));
+    await browser.close();
+    process.exit(1);
+  }
+} else if (mode === 'prd') {
+  try {
+    await enterFirstLevel();
+    const skipVisible = await page.locator('#tutorial-skip').isVisible().catch(() => false);
+    if (skipVisible) await page.click('#tutorial-skip');
+    const state = await page.evaluate(() => {
+      const g = window.game;
+      return {
+        prep: g.prepPhase,
+        wave: g.waveNum,
+        maxWaves: g.maxWaves,
+        gold: g.gold,
+        nextLabel: document.getElementById('next-wave-btn')?.textContent,
+        tutorialVisible: document.getElementById('tutorial-overlay')?.style.display !== 'none',
+        tutorialText: document.getElementById('tutorial-text')?.textContent
+      };
+    });
+
+    // 建塔：面板方式
+    await page.evaluate(() => {
+      const g = window.game;
+      g.showBuildPanel(0);
+      document.querySelector('.build-tower-btn[data-type="arrow"]').click();
+    });
+    const afterBuild = await page.evaluate(() => ({
+      gold: window.game.gold,
+      towers: window.game.towerManager.towers.length
+    }));
+
+    // 开始第一波
+    await page.evaluate(() => window.game.requestNextWave());
+    await page.waitForTimeout(3200);
+    const afterWave = await page.evaluate(() => ({
+      wave: window.game.waveNum,
+      alive: window.game.monsterManager.monsters.length,
+      waveActive: window.game.waveManager.waveActive
+    }));
+
+    // 道具：急救包
+    const hpBefore = await page.evaluate(() => { window.game.baseHP = 10; return window.game.baseHP; });
+    await page.evaluate(() => window.game.useItem('medkit'));
+    const hpAfter = await page.evaluate(() => window.game.baseHP);
+
+    // 暂停
+    await page.click('#pause-btn');
+    const paused = await page.evaluate(() => ({
+      paused: window.game.gamePaused,
+      overlay: document.getElementById('pause-overlay').style.display
+    }));
+    await page.click('#btn-resume');
+
+    await page.screenshot({ path: 'tools/shot-prd.png' });
+    console.log(JSON.stringify({ mode, state, afterBuild, afterWave, hp: { before: hpBefore, after: hpAfter }, paused, errors }, null, 2));
+  } catch (err) {
+    await page.screenshot({ path: 'tools/shot-prd-fail.png' });
+    console.log(JSON.stringify({ mode, fail: String(err), errors }, null, 2));
+    await browser.close();
+    process.exit(1);
+  }
+} else if (mode === 'boss') {
+  try {
+    await enterFirstLevel();
+    await page.evaluate(() => {
+      const g = window.game;
+      g.tutorial.finish();
+      g.startLevel(2); // 3003 BOSS 关
+      g.showBuildPanel(0);
+      document.querySelector('.build-tower-btn[data-type="arrow"]').click();
+      g.waveManager.currentWave = g.waveManager.totalWaves - 1;
+      g.requestNextWave();
+    });
+    // 等 BOSS 出场（开局延迟 3 秒）
+    await page.waitForTimeout(4500);
+    const before = await page.evaluate(() => ({
+      boss: window.game.monsterManager.monsters.filter(m => m.isBoss).length,
+      alive: window.game.monsterManager.monsters.length,
+      wave: window.game.waveNum
+    }));
+    // 立即触发 BOSS 技能
+    await page.evaluate(() => {
+      const boss = window.game.monsterManager.monsters.find(m => m.isBoss);
+      if (boss) boss.bossSkillTimer = 0.05;
+    });
+    await page.waitForTimeout(1300);
+    const during = await page.evaluate(() => ({
+      warnings: window.game.bossWarnings.length,
+      stun: window.game.towerManager.towers.some(t => t.stunDuration > 0)
+    }));
+    await page.waitForTimeout(2500);
+    const after = await page.evaluate(() => ({
+      warnings: window.game.bossWarnings.length,
+      stun: window.game.towerManager.towers.some(t => t.stunDuration > 0)
+    }));
+    await page.screenshot({ path: 'tools/shot-boss.png' });
+    console.log(JSON.stringify({ mode, before, during, after, errors }, null, 2));
+  } catch (err) {
+    await page.screenshot({ path: 'tools/shot-prd-fail.png' });
+    console.log(JSON.stringify({ mode, fail: String(err), errors }, null, 2));
+    await browser.close();
+    process.exit(1);
+  }
+} else if (mode === 'file') {
+  try {
+    const fileUrl = 'file:///C:/Users/dingd/Desktop/%E6%9C%80%E8%BF%91%E7%9A%84%E5%B7%A5%E4%BD%9C/%E9%A1%B9%E7%9B%AE/Home%20Defense%20war/projects/index.html';
+    await page.goto(fileUrl, { waitUntil: 'load', timeout: 15000 });
+    await page.waitForSelector('#main-menu', { state: 'visible', timeout: 8000 });
+    await page.click('#btn-start-menu');
+    await page.waitForSelector('#level-select', { state: 'visible', timeout: 5000 });
+    await page.locator('.level-card').first().click();
+    await page.waitForTimeout(800);
+    const state = await page.evaluate(() => ({
+      wave: window.game ? window.game.waveNum : -1,
+      prep: window.game ? window.game.prepPhase : false,
+      fatal: document.getElementById('fatal-overlay')?.style.display,
+      gold: document.getElementById('gold')?.textContent
+    }));
+    await page.screenshot({ path: 'tools/shot-file.png' });
+    console.log(JSON.stringify({ mode, state, errors }, null, 2));
+  } catch (err) {
+    await page.screenshot({ path: 'tools/shot-file-fail.png' });
+    console.log(JSON.stringify({ mode, fail: String(err), errors }, null, 2));
+    await browser.close();
+    process.exit(1);
+  }
+} else if (mode === 'mech') {
+  try {
+    await enterFirstLevel();
+    await page.evaluate(() => {
+      const g = window.game;
+      g.tutorial.finish();
+      g.gold = 9999;
+      g.updateTowerButtons();
+
+      g.showBuildPanel(0);
+      document.querySelector('.build-tower-btn[data-type="arrow"]').click();
+      g.towerManager.upgradeTower(0);
+
+      g.showBuildPanel(1);
+      document.querySelector('.build-tower-btn[data-type="cannon"]').click();
+      g.towerManager.upgradeTower(1);
+      g.towerManager.upgradeTower(1);
+
+      g.showBuildPanel(2);
+      document.querySelector('.build-tower-btn[data-type="ice"]').click();
+      g.towerManager.upgradeTower(2);
+      g.towerManager.upgradeTower(2);
+
+      window.__freezeSeen = false;
+      const mm = g.monsterManager;
+      const origFreeze = mm.applyFreeze.bind(mm);
+      mm.applyFreeze = (m, d) => { window.__freezeSeen = true; origFreeze(m, d); };
+
+      const near = (tower) => {
+        const pts = mm.paths[0].points;
+        let best = 0, bd = 1e9;
+        for (let i = 0; i < pts.length; i++) {
+          const d = pts[i].distanceTo(tower.pos);
+          if (d < bd) { bd = d; best = i; }
+        }
+        return Math.max(0.2, best + 0.2);
+      };
+      const t0 = g.towerManager.towers.find(t => t.type === 'arrow');
+      const t1 = g.towerManager.towers.find(t => t.type === 'cannon');
+      const t2 = g.towerManager.towers.find(t => t.type === 'ice');
+      const place = (tower, offset = 0) => {
+        const p = near(tower) + offset;
+        const m = mm.spawnMonster('troll', 0, 1);
+        m.pathProgress = p;
+        m.speed = 0;
+        m.mesh.position.copy(mm.getPositionOnPath(mm.paths[0].points, p));
+        return m;
+      };
+      place(t0);
+      place(t0, 0.6);
+      place(t1);
+      place(t2);
+    });
+    await page.waitForTimeout(6500);
+    const result = await page.evaluate(() => {
+      const g = window.game;
+      const ms = g.monsterManager.monsters;
+      const ts = g.towerManager.towers;
+      return {
+        arrowLevel: ts.find(t => t.type === 'arrow')?.level,
+        cannonLevel: ts.find(t => t.type === 'cannon')?.level,
+        iceLevel: ts.find(t => t.type === 'ice')?.level,
+        trollDamaged: ms.filter(m => m.type === 'troll' && m.hp < m.maxHp).length,
+        trollCount: ms.filter(m => m.type === 'troll').length,
+        cannonBurn: ms.some(m => m.type === 'troll' && m.burnStacks.length > 0),
+        cannonShred: ms.some(m => m.type === 'troll' && m.armorShred > 0),
+        iceFreezeSeen: !!window.__freezeSeen,
+        alive: ms.length
+      };
+    });
+    await page.screenshot({ path: 'tools/shot-mech.png' });
+    console.log(JSON.stringify({ mode, result, errors }, null, 2));
+  } catch (err) {
+    await page.screenshot({ path: 'tools/shot-mech-fail.png' });
+    console.log(JSON.stringify({ mode, fail: String(err), errors }, null, 2));
+    await browser.close();
+    process.exit(1);
+  }
+}
+
+await browser.close();
+process.exit(errors.length ? 1 : 0);

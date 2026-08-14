@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Home Defense War - 家园保卫战</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles/td-main.css">
+</head>
+<body>
+  <div id="game-container">
+
+    <!-- 顶部 HUD -->
+    <div id="hud-top">
+      <div class="hud-item"><span class="hud-icon">🏰</span><span id="level-name">3001 山口防线</span></div>
+      <div class="hud-item"><span class="hud-icon">💰</span><span id="gold">200</span></div>
+      <div class="hud-item"><span class="hud-icon">❤️</span><span id="base-hp">20</span></div>
+      <div class="hud-item"><span class="hud-icon">🌊</span><span id="wave-num">0/20</span></div>
+      <div class="hud-item"><span class="hud-icon">💀</span><span id="kill-count">0</span></div>
+      <button id="next-wave-btn" class="hud-btn accent">⚔️ 开始防御</button>
+      <button id="speed-btn" class="hud-btn"><span id="speed-text">1x</span></button>
+      <button id="pause-btn" class="hud-btn">⏸</button>
+      <button id="audio-btn" class="hud-btn">🔊</button>
+    </div>
+
+    <!-- 消息提示 -->
+    <div id="message"></div>
+
+    <!-- 波次公告 -->
+    <div id="wave-announce" style="display:none">
+      <div id="wave-announce-text"></div>
+    </div>
+
+    <!-- 底部塔类型选择 -->
+    <div id="tower-panel">
+      <button class="tower-btn" data-type="arrow">
+        <span class="tower-icon">🏹</span>
+        <span class="tower-name">箭塔</span>
+        <span class="tower-cost">50G</span>
+      </button>
+      <button class="tower-btn" data-type="magic">
+        <span class="tower-icon">🔮</span>
+        <span class="tower-name">魔法塔</span>
+        <span class="tower-cost">80G</span>
+      </button>
+      <button class="tower-btn" data-type="cannon">
+        <span class="tower-icon">💣</span>
+        <span class="tower-name">炮塔</span>
+        <span class="tower-cost">100G</span>
+      </button>
+      <button class="tower-btn" data-type="ice">
+        <span class="tower-icon">❄️</span>
+        <span class="tower-name">冰霜塔</span>
+        <span class="tower-cost">60G</span>
+      </button>
+    </div>
+
+    <!-- 局内道具栏 -->
+    <div id="item-bar">
+      <button class="item-btn" data-item="bomb"><span class="item-icon">💣</span><span class="item-count">×1</span></button>
+      <button class="item-btn" data-item="medkit"><span class="item-icon">🩹</span><span class="item-count">×1</span></button>
+      <button class="item-btn" data-item="goldbag"><span class="item-icon">💰</span><span class="item-count">×1</span></button>
+      <button class="item-btn" data-item="freezerune"><span class="item-icon">❄️</span><span class="item-count">×1</span></button>
+      <button class="item-btn" data-item="totem"><span class="item-icon">🗿</span><span class="item-count">×1</span></button>
+    </div>
+
+    <!-- 建塔面板 -->
+    <div id="tower-build-panel" style="display:none">
+      <div id="build-spot-label">塔位 #1</div>
+      <div class="build-tower-list">
+        <button class="build-tower-btn" data-type="arrow">
+          <span class="tower-icon">🏹</span>箭塔<span class="build-cost">50G</span>
+        </button>
+        <button class="build-tower-btn" data-type="magic">
+          <span class="tower-icon">🔮</span>魔法塔<span class="build-cost">80G</span>
+        </button>
+        <button class="build-tower-btn" data-type="cannon">
+          <span class="tower-icon">💣</span>炮塔<span class="build-cost">100G</span>
+        </button>
+        <button class="build-tower-btn" data-type="ice">
+          <span class="tower-icon">❄️</span>冰霜塔<span class="build-cost">60G</span>
+        </button>
+      </div>
+      <button id="build-cancel-btn">取消</button>
+    </div>
+
+    <!-- 塔信息面板 -->
+    <div id="tower-info-panel" style="display:none">
+      <div id="info-name">箭塔</div>
+      <div id="info-level">Lv.1</div>
+      <div id="info-damage">伤害: 15</div>
+      <div id="info-range">射程: 3.0</div>
+      <div id="info-desc">基础物理塔</div>
+      <div class="info-actions">
+        <button id="upgrade-btn">
+          <span>⬆ 升级</span><span id="upgrade-cost">50G</span>
+        </button>
+        <button id="sell-btn">
+          <span>💰 出售</span><span id="sell-value">35G</span>
+        </button>
+      </div>
+      <button id="close-info">✕</button>
+    </div>
+
+    <!-- 英雄面板 -->
+    <div id="hero-panel" style="display:none">
+      <div id="hero-switch"></div>
+      <div id="hero-name">王国游侠</div>
+      <div id="hero-level">Lv.1</div>
+      <button id="hero-skill-btn">
+        <span id="hero-skill-name">穿透箭</span>
+        <span id="hero-cooldown">就绪</span>
+      </button>
+    </div>
+
+    <!-- 结算面板（胜利/失败共用） -->
+    <div id="result-panel" style="display:none">
+      <div id="result-title">💀 失败</div>
+      <div id="result-stars" class="stars-row" style="display:none"></div>
+      <div id="result-stats">击杀: 0 | 波次: 0</div>
+      <div class="result-btns">
+        <button id="btn-result-next" class="result-btn primary">下一关</button>
+        <button id="btn-result-retry" class="result-btn">重玩</button>
+        <button id="btn-result-menu" class="result-btn">返回选关</button>
+      </div>
+    </div>
+
+    <!-- 暂停与设置 -->
+    <div id="pause-overlay" class="fullscreen-overlay" style="display:none">
+      <h2 class="select-title">暂停</h2>
+      <div class="settings-box">
+        <label>总音量 <input type="range" id="volume-master" min="0" max="1" step="0.05"></label>
+        <label>音乐音量 <input type="range" id="volume-music" min="0" max="1" step="0.05"></label>
+        <label>音效音量 <input type="range" id="volume-sfx" min="0" max="1" step="0.05"></label>
+      </div>
+      <div class="result-btns">
+        <button id="btn-resume" class="result-btn primary">继续</button>
+        <button id="btn-pause-retry" class="result-btn">重玩</button>
+        <button id="btn-pause-menu" class="result-btn">返回选关</button>
+      </div>
+    </div>
+
+    <!-- 主菜单 -->
+    <div id="main-menu" class="fullscreen-overlay">
+      <div class="menu-logo">🏰</div>
+      <h1 class="menu-title">Home Defense War</h1>
+      <p class="menu-subtitle">家园保卫战</p>
+      <button id="btn-start-menu" class="menu-btn primary">⚔️ 开始游戏</button>
+      <button id="btn-heroes-menu" class="menu-btn">📖 英雄图鉴</button>
+      <p class="menu-tip">拖拽旋转视角 · 滚轮缩放 · 点击塔位建造 · 点击地面移动英雄 · 空格提前开波</p>
+      <p class="menu-version">V1.5 正式版</p>
+    </div>
+
+    <!-- 关卡选择 -->
+    <div id="level-select" class="fullscreen-overlay" style="display:none">
+      <button id="btn-back-menu" class="back-btn">← 返回</button>
+      <h2 class="select-title">选择关卡</h2>
+      <div id="chapter-tabs" class="chapter-tabs"></div>
+      <div id="level-grid" class="level-grid"></div>
+    </div>
+
+    <div id="fatal-overlay" style="display:none"></div>
+  </div>
+
+  <script>
+    // file:// 与致命错误提示
+    (function () {
+      if (location.protocol === 'file:') {
+        var bar = document.createElement('div');
+        bar.id = 'file-warning';
+        bar.textContent = '提示：当前为 file:// 模式。若页面空白，请双击 启动游戏.bat。';
+        document.body.appendChild(bar);
+      }
+      function showFatal(msg) {
+        var el = document.getElementById('fatal-overlay');
+        if (!el) return;
+        el.innerHTML = '<b>游戏加载失败</b><p>' + String(msg) + '</p><p>请通过 启动游戏.bat 或本地服务器打开 index.html。</p>';
+        el.style.display = 'flex';
+      }
+      window.addEventListener('error', function (e) { showFatal(e.message || e.error); });
+      window.addEventListener('unhandledrejection', function (e) { showFatal(e.reason); });
+      setTimeout(function () {
+        if (!window.game && !document.getElementById('fatal-overlay').style.display) {
+          showFatal('游戏未在 3 秒内初始化');
+        }
+      }, 3000);
+    })();
+  </script>
+  <script src="build/game.bundle.js"></script>
+</body>
+</html>
