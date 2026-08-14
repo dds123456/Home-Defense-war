@@ -17,6 +17,7 @@
       <div class="hud-item"><span class="hud-icon">❤️</span><span id="base-hp">20</span></div>
       <div class="hud-item"><span class="hud-icon">🌊</span><span id="wave-num">0/20</span></div>
       <div class="hud-item"><span class="hud-icon">💀</span><span id="kill-count">0</span></div>
+      <div class="hud-item"><span class="hud-icon">⚡</span><span id="stamina">20/20</span></div>
       <button id="next-wave-btn" class="hud-btn accent">⚔️ 开始防御</button>
       <button id="speed-btn" class="hud-btn"><span id="speed-text">1x</span></button>
       <button id="pause-btn" class="hud-btn">⏸</button>
@@ -62,6 +63,15 @@
       <button class="item-btn" data-item="goldbag"><span class="item-icon">💰</span><span class="item-count">×1</span></button>
       <button class="item-btn" data-item="freezerune"><span class="item-icon">❄️</span><span class="item-count">×1</span></button>
       <button class="item-btn" data-item="totem"><span class="item-icon">🗿</span><span class="item-count">×1</span></button>
+    </div>
+
+    <!-- 局内技能栏（商店购买） -->
+    <div id="skill-bar">
+      <button class="skill-btn" data-skill="arrowRain"><span class="skill-icon">🏹</span><span class="skill-count">×0</span></button>
+      <button class="skill-btn" data-skill="fireball"><span class="skill-icon">🔥</span><span class="skill-count">×0</span></button>
+      <button class="skill-btn" data-skill="healWave"><span class="skill-icon">💚</span><span class="skill-count">×0</span></button>
+      <button class="skill-btn" data-skill="timeWarp"><span class="skill-icon">⏳</span><span class="skill-count">×0</span></button>
+      <button class="skill-btn" data-skill="goldRain"><span class="skill-icon">🪙</span><span class="skill-count">×0</span></button>
     </div>
 
     <!-- 建塔面板 -->
@@ -146,9 +156,10 @@
       <h1 class="menu-title">Home Defense War</h1>
       <p class="menu-subtitle">家园保卫战</p>
       <button id="btn-start-menu" class="menu-btn primary">⚔️ 开始游戏</button>
-      <button id="btn-heroes-menu" class="menu-btn">📖 英雄图鉴</button>
-      <p class="menu-tip">拖拽旋转视角 · 滚轮缩放 · 点击空地建造防御塔 · 点击塔查看射程 · 点击地面移动英雄 · 空格提前开波</p>
-      <p class="menu-version">V1.6 米哈游风正式版</p>
+      <button id="btn-heroes-menu" class="menu-btn">🧝 英雄培养</button>
+      <button id="btn-shop-menu" class="menu-btn">🛒 商店</button>
+      <p class="menu-tip">拖拽旋转视角 · 滚轮缩放 · 点击空地建造防御塔 · 点击英雄选中后点击地图移动 · 空格提前开波</p>
+      <p class="menu-version">V1.7 米哈游风正式版</p>
     </div>
 
     <!-- 关卡选择 -->
@@ -157,6 +168,22 @@
       <h2 class="select-title">选择关卡</h2>
       <div id="chapter-tabs" class="chapter-tabs"></div>
       <div id="level-grid" class="level-grid"></div>
+    </div>
+
+    <!-- 英雄培养 -->
+    <div id="hero-train-panel" class="fullscreen-overlay" style="display:none">
+      <button id="close-train" class="back-btn">← 返回</button>
+      <h2 class="select-title">英雄培养</h2>
+      <div id="train-coins" class="meta-line">局外金币：0</div>
+      <div id="hero-train-list" class="train-list"></div>
+    </div>
+
+    <!-- 商店 -->
+    <div id="shop-panel" class="fullscreen-overlay" style="display:none">
+      <button id="close-shop" class="back-btn">← 返回</button>
+      <h2 class="select-title">商店 · 局内技能</h2>
+      <div id="shop-coins" class="meta-line">局外金币：0</div>
+      <div id="shop-list" class="shop-list"></div>
     </div>
 
     <div id="fatal-overlay" style="display:none"></div>

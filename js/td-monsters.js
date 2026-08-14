@@ -68,6 +68,10 @@ export class MonsterManager {
     const mesh = this.buildMonsterMesh(def);
     const startPoint = path.points[0].clone();
     mesh.position.copy(startPoint);
+    // 怪物身高约为防御塔的一半（普通小兵约 0.55 格，BOSS 约 1.05 格）
+    const targetH = def.isBoss ? 1.05 : (def.flying ? 0.5 : 0.55);
+    const scale = targetH / Math.max(0.2, def.size[1]);
+    mesh.scale.setScalar(scale);
     this.monsterGroup.add(mesh);
 
     const maxHp = Math.round(def.hp * hpScale);
@@ -94,6 +98,9 @@ export class MonsterManager {
       isBoss: def.isBoss || false,
       bossSkillTimer: def.isBoss && def.bossSkill ? def.bossSkill.firstDelay : 0,
       bossWarningTimer: 0,
+      lastPos: null,
+      animTime: 0,
+      visualScale: scale,
       hpBar: null
     };
 
@@ -115,57 +122,216 @@ export class MonsterManager {
     const group = new THREE.Group();
     const s = def.size;
     const mat = toonMaterial(def.color, { roughness: 0.55 });
+    const limbMat = toonMaterial('#3a3f52', { roughness: 0.7 });
+    const limbs = {};
+    const torsoGroup = new THREE.Group();
+    group.add(torsoGroup);
+    const isQuad = def.type === 'wolfRider' || def.type === 'hellHound';
+    const isGhost = def.type === 'ghost';
 
-    // 身体
-    const bodyGeo = new THREE.BoxGeometry(s[0], s[1] * 0.6, s[2]);
-    const body = new THREE.Mesh(bodyGeo, mat);
-    body.position.y = s[1] * 0.4;
-    body.castShadow = true;
-    group.add(body);
+    const pivotedBox = (w, h, d, material) => {
+      const geo = new THREE.BoxGeometry(w, h, d);
+      geo.translate(0, -h / 2, 0);
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.castShadow = true;
+      return mesh;
+    };
 
-    // 头
-    const headSize = s[0] * 0.8;
-    const headGeo = new THREE.BoxGeometry(headSize, headSize, headSize);
-    const head = new THREE.Mesh(headGeo, mat);
-    head.position.y = s[1] * 0.75;
-    head.castShadow = true;
-    group.add(head);
+    if (isQuad) {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(s[0], s[1] * 0.5, s[2]), mat);
+      body.position.y = s[1] * 0.55;
+      body.castShadow = true;
+      torsoGroup.add(body);
+      limbs.body = body;
 
-    // 眼睛
-    const eyeGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: def.isBoss ? '#ff4d4d' : '#ffffff' });
-    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-    leftEye.position.set(-headSize * 0.2, s[1] * 0.78, headSize * 0.5);
-    group.add(leftEye);
-    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-    rightEye.position.set(headSize * 0.2, s[1] * 0.78, headSize * 0.5);
-    group.add(rightEye);
+      const headR = s[0] * 0.45;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 8, 6), mat);
+      head.position.set(0, s[1] * 0.78, s[2] * 0.42);
+      head.castShadow = true;
+      torsoGroup.add(head);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: def.isBoss ? '#ff4d4d' : '#ffffff' });
+      for (const ex of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.18, 6, 6), eyeMat);
+        eye.position.set(ex * headR * 0.35, s[1] * 0.82, s[2] * 0.42 + headR * 0.7);
+        torsoGroup.add(eye);
+      }
 
-    // 飞行怪物加翅膀
-    if (def.flying) {
-      const wingGeo = new THREE.BoxGeometry(0.05, 0.3, 0.15);
+      const legLen = s[1] * 0.42;
+      const legs = [];
+      for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const leg = pivotedBox(s[0] * 0.22, legLen, s[2] * 0.28, limbMat);
+        leg.position.set(lx * s[0] * 0.34, s[1] * 0.42, lz * s[2] * 0.32);
+        torsoGroup.add(leg);
+        legs.push(leg);
+      }
+      limbs.legs = legs;
+      limbs.torso = torsoGroup;
+
+      if (def.type === 'wolfRider') {
+        const riderMat = toonMaterial('#d8b98a', { roughness: 0.5 });
+        const riderTorso = new THREE.Mesh(new THREE.BoxGeometry(s[0] * 0.5, s[1] * 0.3, s[2] * 0.4), riderMat);
+        riderTorso.position.set(0, s[1] * 1.02, -s[2] * 0.1);
+        torsoGroup.add(riderTorso);
+        const riderHead = new THREE.Mesh(new THREE.SphereGeometry(s[0] * 0.28, 8, 6), riderMat);
+        riderHead.position.set(0, s[1] * 1.24, -s[2] * 0.1);
+        torsoGroup.add(riderHead);
+      }
+    } else if (def.flying) {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(s[0], s[1] * 0.42, s[2]), mat);
+      body.position.y = s[1] * 0.5;
+      body.castShadow = true;
+      torsoGroup.add(body);
+      limbs.body = body;
+
+      const headR = s[0] * 0.4;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 8, 6), mat);
+      head.position.set(0, s[1] * 0.72, s[2] * 0.36);
+      head.castShadow = true;
+      torsoGroup.add(head);
+
+      const wingGeo = new THREE.BoxGeometry(0.06, s[1] * 0.34, s[2] * 0.75);
+      wingGeo.translate(0, 0, -s[2] * 0.3);
       const wingMat = toonMaterial('#8f9bb3', { roughness: 0.6 });
       const leftWing = new THREE.Mesh(wingGeo, wingMat);
-      leftWing.position.set(-s[0] * 0.6, s[1] * 0.5, 0);
-      leftWing.rotation.z = 0.3;
-      group.add(leftWing);
+      leftWing.position.set(-s[0] * 0.58, s[1] * 0.62, 0);
+      torsoGroup.add(leftWing);
       const rightWing = new THREE.Mesh(wingGeo, wingMat);
-      rightWing.position.set(s[0] * 0.6, s[1] * 0.5, 0);
-      rightWing.rotation.z = -0.3;
-      group.add(rightWing);
+      rightWing.position.set(s[0] * 0.58, s[1] * 0.62, 0);
+      torsoGroup.add(rightWing);
+      limbs.leftWing = leftWing;
+      limbs.rightWing = rightWing;
+      limbs.torso = torsoGroup;
+
+      if (!isGhost) {
+        const legLen = s[1] * 0.24;
+        const leftLeg = pivotedBox(s[0] * 0.2, legLen, s[2] * 0.3, limbMat);
+        leftLeg.position.set(-s[0] * 0.3, s[1] * 0.28, 0);
+        torsoGroup.add(leftLeg);
+        const rightLeg = pivotedBox(s[0] * 0.2, legLen, s[2] * 0.3, limbMat);
+        rightLeg.position.set(s[0] * 0.3, s[1] * 0.28, 0);
+        torsoGroup.add(rightLeg);
+        limbs.leftLeg = leftLeg;
+        limbs.rightLeg = rightLeg;
+      }
+      if (isGhost) {
+        const cloak = new THREE.Mesh(new THREE.ConeGeometry(s[0] * 0.7, s[1] * 0.7, 8), toonMaterial(def.color, { transparent: true, opacity: 0.85 }));
+        cloak.position.y = s[1] * 0.3;
+        torsoGroup.add(cloak);
+      }
+    } else {
+      const hipY = s[1] * 0.38;
+      const legLen = s[1] * 0.4;
+      const torsoW = s[0] * 0.95;
+      const torsoH = s[1] * 0.3;
+      const shoulderY = hipY + torsoH * 0.95;
+      const armLen = s[1] * 0.34;
+      const headR = Math.max(0.13, s[0] * 0.4);
+
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(torsoW, torsoH, s[2] * 0.85), mat);
+      torso.position.y = hipY + torsoH / 2;
+      torso.castShadow = true;
+      torsoGroup.add(torso);
+      limbs.torso = torsoGroup;
+      limbs.body = torso;
+
+      const leftLeg = pivotedBox(torsoW * 0.22, legLen, s[2] * 0.5, limbMat);
+      leftLeg.position.set(-torsoW * 0.28, hipY, 0);
+      torsoGroup.add(leftLeg);
+      const rightLeg = pivotedBox(torsoW * 0.22, legLen, s[2] * 0.5, limbMat);
+      rightLeg.position.set(torsoW * 0.28, hipY, 0);
+      torsoGroup.add(rightLeg);
+      limbs.leftLeg = leftLeg;
+      limbs.rightLeg = rightLeg;
+
+      const leftArm = pivotedBox(torsoW * 0.18, armLen, s[2] * 0.42, limbMat);
+      leftArm.position.set(-torsoW * 0.58, shoulderY, 0);
+      torsoGroup.add(leftArm);
+      const rightArm = pivotedBox(torsoW * 0.18, armLen, s[2] * 0.42, limbMat);
+      rightArm.position.set(torsoW * 0.58, shoulderY, 0);
+      torsoGroup.add(rightArm);
+      limbs.leftArm = leftArm;
+      limbs.rightArm = rightArm;
+
+      const headY = hipY + torsoH + headR * 0.85;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 10, 8), mat);
+      head.position.y = headY;
+      head.castShadow = true;
+      torsoGroup.add(head);
+
+      const eyeMat = new THREE.MeshBasicMaterial({ color: def.isBoss ? '#ff4d4d' : '#ffffff' });
+      for (const ex of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(headR * 0.16, 6, 6), eyeMat);
+        eye.position.set(ex * headR * 0.35, headY, headR * 0.82);
+        torsoGroup.add(eye);
+      }
+
+      if (def.type === 'goblin' || def.type === 'fastGoblin') {
+        for (const ex of [-1, 1]) {
+          const ear = new THREE.Mesh(new THREE.ConeGeometry(headR * 0.22, headR * 0.8, 6), mat);
+          ear.position.set(ex * headR * 0.85, headY + headR * 0.4, 0);
+          ear.rotation.z = ex * 0.35;
+          torsoGroup.add(ear);
+        }
+      }
+      if (def.type === 'orc' || def.type === 'orcCaptain') {
+        for (const ex of [-1, 1]) {
+          const tusk = new THREE.Mesh(new THREE.ConeGeometry(headR * 0.14, headR * 0.7, 6), toonMaterial('#f5f0e0'));
+          tusk.position.set(ex * headR * 0.32, headY - headR * 0.55, headR * 0.7);
+          tusk.rotation.x = ex * 0.2;
+          torsoGroup.add(tusk);
+        }
+      }
+      if (def.type === 'demonImp' || def.type === 'heavyDemon' || def.type === 'hellGolem') {
+        for (const ex of [-1, 1]) {
+          const horn = new THREE.Mesh(new THREE.ConeGeometry(headR * 0.2, headR * 0.9, 6), toonMaterial('#ff8f5e'));
+          horn.position.set(ex * headR * 0.45, headY + headR * 0.8, 0);
+          horn.rotation.z = ex * 0.3;
+          torsoGroup.add(horn);
+        }
+      }
+      if (def.type === 'skeleton' || def.type === 'skeletonKing') {
+        const ribMat = toonMaterial('#d9d4c8');
+        for (let i = 0; i < 3; i++) {
+          const rib = new THREE.Mesh(new THREE.BoxGeometry(torsoW * 0.9, 0.03, s[2] * 0.8), ribMat);
+          rib.position.y = hipY + torsoH * (0.35 + i * 0.2);
+          torsoGroup.add(rib);
+        }
+        if (def.type === 'skeletonKing') {
+          const crown = new THREE.Mesh(new THREE.CylinderGeometry(headR * 0.4, headR * 0.42, headR * 0.7, 6), toonMaterial('#ffd66e', { emissive: '#ffd66e', emissiveIntensity: 0.3 }));
+          crown.position.y = headY + headR * 0.75;
+          torsoGroup.add(crown);
+        }
+      }
+      if (def.type === 'shadow' || def.type === 'lich') {
+        const hood = new THREE.Mesh(new THREE.ConeGeometry(headR * 1.25, headR * 2.2, 8), toonMaterial(def.type === 'lich' ? '#3b3f9e' : '#2b2050', { transparent: true, opacity: 0.9 }));
+        hood.position.y = headY + headR * 0.9;
+        torsoGroup.add(hood);
+      }
+      if (def.type === 'zombie') {
+        leftArm.rotation.x = 0.5;
+        rightArm.rotation.x = 0.5;
+      }
+      if (def.type === 'troll' || def.type === 'stoneGolem' || def.type === 'heavyDemon') {
+        for (const ex of [-1, 1]) {
+          const pad = new THREE.Mesh(new THREE.SphereGeometry(torsoW * 0.38, 8, 6), mat);
+          pad.position.set(ex * torsoW * 0.62, shoulderY + armLen * 0.1, 0);
+          torsoGroup.add(pad);
+        }
+      }
     }
 
-    // Boss特效
     if (def.isBoss) {
-      const auraGeo = new THREE.RingGeometry(0.4, 0.5, 16);
-      const auraMat = new THREE.MeshBasicMaterial({ color: '#ff5f6d', side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
-      const aura = new THREE.Mesh(auraGeo, auraMat);
+      const aura = new THREE.Mesh(
+        new THREE.RingGeometry(0.4, 0.5, 16),
+        new THREE.MeshBasicMaterial({ color: '#ff5f6d', side: THREE.DoubleSide, transparent: true, opacity: 0.4 })
+      );
       aura.rotation.x = -Math.PI / 2;
       aura.position.y = 0.1;
       group.add(aura);
       group.userData.aura = aura;
     }
 
+    group.userData.limbs = limbs;
     return group;
   }
 
@@ -185,7 +351,8 @@ export class MonsterManager {
     group.userData.fill = fill;
     group.userData.fillMat = fillMat;
 
-    group.position.y = monster.def.size[1] + 0.15;
+    const h = monster.def.size[1] * (monster.mesh.scale.y || 1);
+    group.position.y = h + 0.15;
     return group;
   }
 
@@ -236,6 +403,20 @@ export class MonsterManager {
       // 插值位置
       m.mesh.position.copy(this.getPositionOnPath(m.pathPoints, m.pathProgress));
       if (m.flying) m.mesh.position.y += 0.5 + Math.sin(m.pathProgress * 2 + m.id) * 0.15;
+
+      // 面朝行进方向（平滑转向，符合行走逻辑）
+      if (m.lastPos) {
+        const dx = m.mesh.position.x - m.lastPos.x;
+        const dz = m.mesh.position.z - m.lastPos.z;
+        if (Math.hypot(dx, dz) > 0.001) {
+          const targetYaw = Math.atan2(dx, dz);
+          let diff = targetYaw - m.mesh.rotation.y;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          m.mesh.rotation.y += diff * Math.min(1, 10 * gameDt);
+        }
+      }
+      m.lastPos = m.mesh.position.clone();
 
       // 更新血条
       this.updateHpBar(m);
@@ -409,7 +590,48 @@ export class MonsterManager {
   updateVisuals(dt) {
     for (const m of this.monsters) {
       if (m.dead) continue;
-      m.mesh.children[0].rotation.y += dt * 0.5;
+      const limbs = m.mesh.userData.limbs;
+      if (!limbs) continue;
+
+      const paused = m.frozenDuration > 0 || m.stunDuration > 0;
+      m.animTime = (m.animTime || 0) + dt * (paused ? 0 : 1);
+      const t = m.animTime;
+      const freq = 4 + Math.min(5, m.speed);
+      const amp = paused ? 0 : Math.min(0.5, 0.12 + m.speed * 0.08);
+
+      if (m.flying && limbs.leftWing) {
+        const flap = Math.sin(t * 8) * 0.7;
+        limbs.leftWing.rotation.z = flap;
+        limbs.rightWing.rotation.z = -flap;
+        if (limbs.torso) {
+          limbs.torso.position.y = Math.sin(t * 8) * 0.06;
+          limbs.torso.rotation.z = Math.sin(t * 8) * 0.08;
+        }
+      } else if (limbs.leftLeg && limbs.rightLeg && !limbs.legs) {
+        const swing = Math.sin(t * freq) * amp;
+        limbs.leftLeg.rotation.x = swing;
+        limbs.rightLeg.rotation.x = -swing;
+        if (limbs.leftArm) limbs.leftArm.rotation.x = -swing * 0.8;
+        if (limbs.rightArm) limbs.rightArm.rotation.x = swing * 0.8;
+        if (limbs.torso) {
+          limbs.torso.position.y = Math.abs(Math.sin(t * freq)) * 0.04;
+          limbs.torso.rotation.z = Math.sin(t * freq * 0.5) * 0.02;
+        }
+      } else if (limbs.legs && limbs.legs.length === 4) {
+        const swing = Math.sin(t * freq) * amp;
+        limbs.legs[0].rotation.x = swing;
+        limbs.legs[3].rotation.x = swing;
+        limbs.legs[1].rotation.x = -swing;
+        limbs.legs[2].rotation.x = -swing;
+        if (limbs.torso) {
+          limbs.torso.position.y = Math.abs(Math.sin(t * freq)) * 0.05;
+          limbs.torso.rotation.x = Math.sin(t * freq) * 0.03;
+        }
+      }
+
+      if (m.frozenDuration > 0 && limbs.torso) {
+        limbs.torso.position.x = Math.sin(t * 30) * 0.012;
+      }
       if (m.isBoss && m.mesh.userData.aura) {
         m.mesh.userData.aura.rotation.z += dt * 2;
       }

@@ -690,7 +690,9 @@ body {
 #game-container.in-menu #wave-announce,
 #game-container.in-menu #hero-panel,
 #game-container.in-menu #tower-build-panel,
-#game-container.in-menu #tower-info-panel {
+#game-container.in-menu #tower-info-panel,
+#game-container.in-menu #item-bar,
+#game-container.in-menu #skill-bar {
   display: none !important;
 }
 
@@ -812,6 +814,55 @@ body {
   font-size: 11px;
 }
 
+/* ============ 局内技能栏 ============ */
+#skill-bar {
+  position: absolute;
+  bottom: 158px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: linear-gradient(160deg, rgba(20,32,64,0.9), rgba(10,16,36,0.94));
+  border: 1px solid rgba(178,140,255,0.28);
+  padding: 6px 10px;
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  z-index: 9;
+}
+.skill-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(178,140,255,0.12);
+  border: 1px solid rgba(178,140,255,0.3);
+  color: #fff;
+  padding: 5px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.skill-btn:hover {
+  background: rgba(178,140,255,0.24);
+}
+.skill-btn.selected {
+  background: rgba(255,214,110,0.2);
+  border-color: #ffd66e;
+  color: #ffd66e;
+}
+.skill-btn.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.skill-icon {
+  font-size: 16px;
+}
+.skill-count {
+  color: #ffd66e;
+  font-size: 11px;
+}
+
 /* ============ 英雄面板扩展 ============ */
 #hero-level {
   color: #8fa;
@@ -893,6 +944,137 @@ body {
   color: #666;
   font-size: 12px;
   margin-top: 4px;
+}
+
+/* ============ 英雄培养 / 商店 ============ */
+.meta-line {
+  color: #ffd66e;
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.train-list {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 760px;
+}
+.train-card {
+  width: 250px;
+  background: linear-gradient(160deg, rgba(26,40,76,0.9), rgba(12,18,40,0.94));
+  border: 1px solid rgba(110,231,255,0.28);
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 28px rgba(10,20,60,0.4);
+}
+.train-card.locked {
+  opacity: 0.55;
+}
+.train-icon {
+  font-size: 52px;
+}
+.train-name {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+}
+.train-level {
+  color: #ffd66e;
+  font-size: 22px;
+  font-weight: 900;
+}
+.train-stat {
+  color: #9fb6d8;
+  font-size: 13px;
+}
+.train-upgrade {
+  margin-top: 8px;
+  background: linear-gradient(135deg, #ffd66e, #ff9d3c);
+  color: #17203a;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+}
+.train-upgrade:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.shop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(720px, 90vw);
+}
+.shop-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: linear-gradient(160deg, rgba(26,40,76,0.9), rgba(12,18,40,0.94));
+  border: 1px solid rgba(110,231,255,0.24);
+  border-radius: 14px;
+  padding: 10px 14px;
+}
+.shop-icon {
+  font-size: 30px;
+}
+.shop-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shop-name {
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+}
+.shop-desc {
+  color: #9fb6d8;
+  font-size: 12px;
+}
+.shop-owned {
+  color: #ffd66e;
+  font-weight: 800;
+}
+.shop-buy {
+  background: linear-gradient(135deg, #ffd66e, #ff9d3c);
+  color: #17203a;
+  border: none;
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+}
+.shop-buy:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ============ 全局 toast ============ */
+#ui-toast {
+  position: fixed;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: linear-gradient(160deg, rgba(30,46,84,0.96), rgba(10,16,36,0.98));
+  border: 1px solid #ffd66e;
+  color: #ffd66e;
+  padding: 10px 22px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  display: none;
 }
 
 /* ============ 错误提示 ============ */

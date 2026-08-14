@@ -23,8 +23,24 @@ const ITEM_DEFS = {
   totem: { name: '援军图腾', icon: '🗿', desc: '召唤一座2级箭塔持续15秒' }
 };
 
+const SKILL_DEFS = {
+  arrowRain: { name: '箭雨', icon: '🏹', desc: '目标范围 150 物理伤害', price: 60, target: true },
+  fireball: { name: '火球术', icon: '🔥', desc: '目标范围 250 魔法伤害', price: 80, target: true },
+  healWave: { name: '治疗波', icon: '💚', desc: '基地恢复 10 生命', price: 50, target: false },
+  timeWarp: { name: '时间缓速', icon: '⏳', desc: '全场怪物减速 60% 持续 5 秒', price: 70, target: false },
+  goldRain: { name: '金币雨', icon: '🪙', desc: '立即获得 200 金币', price: 40, target: false }
+};
+
 function loadProgress() {
-  const base = { unlocked: 0, stars: {}, heroExp: {} };
+  const base = {
+    unlocked: 0,
+    stars: {},
+    heroExp: {},
+    heroLevels: { ranger: 1, mage: 1 },
+    coins: 0,
+    stamina: { value: 20, max: 20, lastRegen: Date.now() },
+    shopSkills: { arrowRain: 0, fireball: 0, healWave: 0, timeWarp: 0, goldRain: 0 }
+  };
   try {
     const raw = localStorage.getItem(PROGRESS_KEY);
     if (raw) {
@@ -33,6 +49,10 @@ function loadProgress() {
         base.unlocked = p.unlocked;
         base.stars = p.stars;
         base.heroExp = p.heroExp || {};
+        base.heroLevels = Object.assign(base.heroLevels, p.heroLevels || {});
+        base.coins = p.coins || 0;
+        base.stamina = Object.assign(base.stamina, p.stamina || {});
+        base.shopSkills = Object.assign(base.shopSkills, p.shopSkills || {});
       }
     }
   } catch (e) { /* ignore */ }
@@ -66,8 +86,12 @@ class Game {
     this.hero = null;
     this.buildingCell = null;
     this.selectedTowerType = null;
+    this.heroSelected = false;
     this.items = { bomb: 1, medkit: 1, goldbag: 1, freezerune: 1, totem: 1 };
     this.selectedItem = null;
+    this.skills = { arrowRain: 0, fireball: 0, healWave: 0, timeWarp: 0, goldRain: 0 };
+    this.selectedSkill = null;
+    this.staminaCost = 5;
     this.bossWarnings = [];
     this._msgTimeout = null;
     this._suppressClick = false;
@@ -262,6 +286,7 @@ class Game {
       baseHPEl: $('base-hp'),
       waveEl: $('wave-num'),
       killsEl: $('kill-count'),
+      staminaEl: $('stamina'),
       levelNameEl: $('level-name'),
       nextWaveBtn: $('next-wave-btn'),
       speedBtn: $('speed-btn'),
@@ -306,6 +331,17 @@ class Game {
       heroSwitch: $('hero-switch'),
       itemBar: $('item-bar'),
       itemBtns: document.querySelectorAll('.item-btn'),
+      skillBar: $('skill-bar'),
+      skillBtns: document.querySelectorAll('.skill-btn'),
+      heroTrainPanel: $('hero-train-panel'),
+      heroTrainList: $('hero-train-list'),
+      trainCoins: $('train-coins'),
+      shopPanel: $('shop-panel'),
+      shopList: $('shop-list'),
+      shopCoins: $('shop-coins'),
+      btnShopMenu: $('btn-shop-menu'),
+      closeTrainBtn: $('close-train'),
+      closeShopBtn: $('close-shop'),
       towerBuildPanel: $('tower-build-panel'),
       buildTowerBtns: document.querySelectorAll('.build-tower-btn'),
       buildCancelBtn: $('build-cancel-btn'),
@@ -321,7 +357,10 @@ class Game {
     };
 
     this.ui.btnStartMenu.addEventListener('click', () => { this.audio.play('click'); this.showLevelSelect(); });
-    this.ui.btnHeroesMenu.addEventListener('click', () => { this.audio.play('click'); this.showMessage('英雄图鉴敬请期待', 1800); });
+    this.ui.btnHeroesMenu.addEventListener('click', () => { this.audio.play('click'); this.openHeroTrain(); });
+    this.ui.btnShopMenu.addEventListener('click', () => { this.audio.play('click'); this.openShop(); });
+    this.ui.closeTrainBtn.addEventListener('click', () => { this.audio.play('click'); this.closeHeroTrain(); });
+    this.ui.closeShopBtn.addEventListener('click', () => { this.audio.play('click'); this.closeShop(); });
     this.ui.btnBackMenu.addEventListener('click', () => { this.audio.play('click'); this.showMainMenu(); });
     this.ui.resultNextBtn.addEventListener('click', () => { this.audio.play('click'); this.startLevel(this.currentLevel + 1); });
     this.ui.resultRetryBtn.addEventListener('click', () => { this.audio.play('click'); this.startLevel(this.currentLevel); });
@@ -369,10 +408,18 @@ class Game {
         this.selectItem(btn.dataset.item);
       });
     });
+    this.ui.skillBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.audio.play('click');
+        this.selectSkill(btn.dataset.skill);
+      });
+    });
 
     this.updateUI();
     this.updateTowerButtons();
     this.updateItemUI();
+    this.updateSkillUI();
+    this.updateStaminaUI();
     this.ui.audioBtn.textContent = this.audio.isMuted() ? '🔇' : '🔊';
   }
 
@@ -437,6 +484,12 @@ class Game {
 
   startLevel(levelIndex) {
     if (levelIndex < 0 || levelIndex >= LEVEL_CONFIGS.length) return;
+    const stamina = this.getStamina();
+    if (stamina.value < this.staminaCost) {
+      this.showToast(`体力不足（需要 ${this.staminaCost} 点，当前 ${stamina.value} 点）`);
+      return;
+    }
+    this.spendStamina(this.staminaCost);
     this.currentLevel = levelIndex;
     this.resetGame();
 
@@ -454,6 +507,8 @@ class Game {
     const heroSpawn = this.map.getHeroSpawn();
     this.heroManager.reset(heroSpawn);
     this.hero = this.heroManager.getActiveHero();
+    this.heroSelected = false;
+    this.heroManager.setSelected(false);
     this.frameLevel();
     this.audio.startMusic(LEVEL_CONFIGS[levelIndex].chapter);
     this.audio.play('waveStart');
@@ -481,8 +536,11 @@ class Game {
     this.hero = null;
     this.buildingCell = null;
     this.selectedTowerType = null;
+    this.heroSelected = false;
     this.selectedItem = null;
     this.items = { bomb: 1, medkit: 1, goldbag: 1, freezerune: 1, totem: 1 };
+    this.selectedSkill = null;
+    this.skills = Object.assign({ arrowRain: 0, fireball: 0, healWave: 0, timeWarp: 0, goldRain: 0 }, this.progress.shopSkills || {});
     this.bossWarnings.forEach(w => this.scene.remove(w.mesh));
     this.bossWarnings = [];
     this.hideRange();
@@ -518,6 +576,8 @@ class Game {
     this.updateUI();
     this.updateTowerButtons();
     this.updateItemUI();
+    this.updateSkillUI();
+    this.updateStaminaUI();
   }
 
   computeStars() {
@@ -536,7 +596,8 @@ class Game {
     const noDamage = win && this.baseHP >= this.baseMaxHP ? 100 : 0;
     const goldReward = Math.round(base + waveBonus + (win ? base * starMult : 0) + firstClear);
     const exp = Math.round(10 + this.waveNum * 2 + stars * 5 + (win ? 20 : 0));
-    return { goldReward, exp, firstClear, noDamage };
+    const coins = win ? 20 + stars * 10 + (firstClear ? 50 : 0) : 5 + this.waveNum;
+    return { goldReward, exp, coins, firstClear, noDamage };
   }
 
   gameWin() {
@@ -557,6 +618,7 @@ class Game {
     if (this.hero) {
       this.progress.heroExp[this.hero.id] = (this.progress.heroExp[this.hero.id] || 0) + rewards.exp;
     }
+    this.progress.coins += rewards.coins;
     saveProgress(this.progress);
 
     const hasNext = this.currentLevel + 1 < LEVEL_CONFIGS.length;
@@ -564,7 +626,7 @@ class Game {
     this.ui.gameOverStars.style.display = 'flex';
     this.ui.gameOverStars.innerHTML = [0, 1, 2].map(i =>
       `<span class="star ${i < stars ? 'on' : ''}">★</span>`).join('');
-    this.ui.gameOverStats.innerHTML = `击杀: ${this.totalKills} | 剩余生命: ${this.baseHP} | 星级: ${stars}<br>金币奖励: ${rewards.goldReward} | 英雄经验: +${rewards.exp}${rewards.firstClear ? ' | 首通 +200' : ''}${rewards.noDamage ? ' | 无伤 +100' : ''}`;
+    this.ui.gameOverStats.innerHTML = `击杀: ${this.totalKills} | 剩余生命: ${this.baseHP} | 星级: ${stars}<br>金币奖励: ${rewards.goldReward} | 局外金币: +${rewards.coins} | 英雄经验: +${rewards.exp}${rewards.firstClear ? ' | 首通 +200' : ''}${rewards.noDamage ? ' | 无伤 +100' : ''}`;
     this.ui.resultNextBtn.style.display = hasNext ? 'inline-block' : 'none';
     this.ui.gameOverPanel.style.display = 'flex';
     document.getElementById('game-container').classList.add('in-menu');
@@ -581,11 +643,12 @@ class Game {
     if (this.hero) {
       this.progress.heroExp[this.hero.id] = (this.progress.heroExp[this.hero.id] || 0) + rewards.exp;
     }
+    this.progress.coins += rewards.coins;
     saveProgress(this.progress);
 
     this.ui.gameOverTitle.textContent = '💀 失败';
     this.ui.gameOverStars.style.display = 'none';
-    this.ui.gameOverStats.innerHTML = `击杀: ${this.totalKills} | 波次: ${this.waveNum}<br>基础奖励: ${rewards.goldReward}G | 英雄经验: +${rewards.exp}`;
+    this.ui.gameOverStats.innerHTML = `击杀: ${this.totalKills} | 波次: ${this.waveNum}<br>基础奖励: ${rewards.goldReward}G | 局外金币: +${rewards.coins} | 英雄经验: +${rewards.exp}`;
     this.ui.resultNextBtn.style.display = 'none';
     this.ui.gameOverPanel.style.display = 'flex';
     document.getElementById('game-container').classList.add('in-menu');
@@ -724,6 +787,8 @@ class Game {
   selectTowerType(type) {
     const btn = document.querySelector(`.tower-btn[data-type="${type}"]`);
     if (!btn) return;
+    this.heroSelected = false;
+    this.heroManager.setSelected(false);
     if (btn.classList.contains('selected')) {
       btn.classList.remove('selected');
       this.selectedTowerType = null;
@@ -847,6 +912,8 @@ class Game {
     this.heroManager.activeHeroIndex = index;
     this.heroManager.moveTarget = null;
     this.heroManager.path = [];
+    this.heroSelected = false;
+    this.heroManager.setSelected(false);
     this.hero = this.heroManager.getActiveHero();
     this.updateHeroUI();
   }
@@ -977,6 +1044,190 @@ class Game {
     });
   }
 
+  selectSkill(id) {
+    if (this.skills[id] <= 0) return;
+    const def = SKILL_DEFS[id];
+    if (!def.target) {
+      this.useSkill(id);
+      return;
+    }
+    this.selectedSkill = this.selectedSkill === id ? null : id;
+    this.updateSkillUI();
+    if (this.selectedSkill) this.showMessage(`${def.name}：点击战场使用`, 1600);
+  }
+
+  useSkill(id) {
+    if (this.skills[id] <= 0) return;
+    if (id === 'healWave') {
+      this.baseHP = Math.min(this.baseMaxHP, this.baseHP + 10);
+      this.showMessage('治疗波：基地生命+10', 1400);
+      this.audio.play('item');
+    } else if (id === 'timeWarp') {
+      for (const m of this.monsterManager.monsters) this.monsterManager.applySlow(m, 0.6, 5, { magic: true });
+      this.showMessage('时间缓速：全场减速60%', 1400);
+      this.audio.play('freeze');
+    } else if (id === 'goldRain') {
+      this.gold += 200;
+      this.showMessage('金币雨：+200G', 1400);
+      this.audio.play('coin');
+    }
+    this.skills[id]--;
+    this.updateUI();
+    this.updateSkillUI();
+  }
+
+  useSkillAt(id, point) {
+    if (this.skills[id] <= 0) return;
+    const mm = this.monsterManager;
+    if (id === 'arrowRain') {
+      let hits = 0;
+      for (const m of mm.monsters) {
+        if (m.dead) continue;
+        if (point.distanceTo(m.mesh.position) <= 3) {
+          mm.damageMonster(m, 150, 'physical');
+          hits++;
+        }
+      }
+      this.spawnExplosion(point);
+      this.audio.play('cannon_fire');
+      this.showMessage(`箭雨命中 ${hits} 只怪物`, 1400);
+      this.skills[id]--;
+    } else if (id === 'fireball') {
+      let hits = 0;
+      for (const m of mm.monsters) {
+        if (m.dead) continue;
+        if (point.distanceTo(m.mesh.position) <= 1.6) {
+          mm.damageMonster(m, 250, 'magic');
+          hits++;
+        }
+      }
+      this.spawnExplosion(point);
+      this.audio.play('heroSkill');
+      this.showMessage(`火球术命中 ${hits} 只怪物`, 1400);
+      this.skills[id]--;
+    }
+    this.updateUI();
+    this.updateSkillUI();
+  }
+
+  updateSkillUI() {
+    this.ui.skillBtns.forEach(btn => {
+      const id = btn.dataset.skill;
+      const count = this.skills[id] || 0;
+      const def = SKILL_DEFS[id];
+      const countEl = btn.querySelector('.skill-count');
+      if (countEl) countEl.textContent = `×${count}`;
+      btn.title = `${def.name}：${def.desc}`;
+      btn.classList.toggle('selected', this.selectedSkill === id);
+      btn.classList.toggle('disabled', count <= 0);
+    });
+  }
+
+  buySkill(id) {
+    const def = SKILL_DEFS[id];
+    if (!def) return;
+    if (this.progress.coins < def.price) {
+      this.showToast('局外金币不足');
+      return;
+    }
+    this.progress.coins -= def.price;
+    this.progress.shopSkills[id] = (this.progress.shopSkills[id] || 0) + 1;
+    saveProgress(this.progress);
+    this.audio.play('coin');
+    this.renderShop();
+  }
+
+  upgradeHero(id) {
+    const level = this.progress.heroLevels[id] || 1;
+    if (level >= 30) {
+      this.showToast('英雄已达满级');
+      return;
+    }
+    const cost = 30 + level * 20;
+    if (this.progress.coins < cost) {
+      this.showToast('局外金币不足');
+      return;
+    }
+    this.progress.coins -= cost;
+    this.progress.heroLevels[id] = level + 1;
+    saveProgress(this.progress);
+    this.audio.play('upgrade');
+    this.renderHeroTrain();
+  }
+
+  renderHeroTrain() {
+    const list = this.ui.heroTrainList;
+    list.innerHTML = '';
+    const heroMeta = [
+      { id: 'ranger', name: '王国游侠', icon: '🧝', unlocked: true },
+      { id: 'mage', name: '宫廷法师', icon: '🧙', unlocked: this.progress.unlocked >= 3 }
+    ];
+    for (const meta of heroMeta) {
+      const level = this.progress.heroLevels[meta.id] || 1;
+      const cost = level >= 30 ? 0 : 30 + level * 20;
+      const baseDmg = meta.id === 'ranger' ? 20 : 25;
+      const baseSpd = meta.id === 'ranger' ? 3.0 : 2.5;
+      const dmg = Math.round(baseDmg * (1 + (level - 1) * 0.02));
+      const spd = baseSpd * (1 + (level - 1) * 0.01);
+      const card = document.createElement('div');
+      card.className = 'train-card' + (meta.unlocked ? '' : ' locked');
+      card.innerHTML = `
+        <div class="train-icon">${meta.icon}</div>
+        <div class="train-name">${meta.name}</div>
+        <div class="train-level">Lv.${level}</div>
+        <div class="train-stat">攻击 ${dmg} · 移速 ${spd.toFixed(2)}</div>
+        <button class="train-upgrade" ${meta.unlocked && level < 30 ? '' : 'disabled'}>${level >= 30 ? '满级' : `升级 ${cost} 金币`}</button>
+      `;
+      if (meta.unlocked && level < 30) {
+        card.querySelector('.train-upgrade').addEventListener('click', () => this.upgradeHero(meta.id));
+      } else if (!meta.unlocked) {
+        card.querySelector('.train-upgrade').textContent = '未解锁（完成3003）';
+      }
+      list.appendChild(card);
+    }
+    this.ui.trainCoins.textContent = `局外金币：${this.progress.coins}`;
+  }
+
+  renderShop() {
+    const list = this.ui.shopList;
+    list.innerHTML = '';
+    for (const [id, def] of Object.entries(SKILL_DEFS)) {
+      const owned = this.progress.shopSkills[id] || 0;
+      const row = document.createElement('div');
+      row.className = 'shop-row';
+      row.innerHTML = `
+        <span class="shop-icon">${def.icon}</span>
+        <div class="shop-info">
+          <div class="shop-name">${def.name}</div>
+          <div class="shop-desc">${def.desc}</div>
+        </div>
+        <span class="shop-owned">×${owned}</span>
+        <button class="shop-buy" data-skill="${id}" ${this.progress.coins >= def.price ? '' : 'disabled'}>${def.price} 金币</button>
+      `;
+      row.querySelector('.shop-buy').addEventListener('click', () => this.buySkill(id));
+      list.appendChild(row);
+    }
+    this.ui.shopCoins.textContent = `局外金币：${this.progress.coins}`;
+  }
+
+  openHeroTrain() {
+    this.ui.heroTrainPanel.style.display = 'flex';
+    this.renderHeroTrain();
+  }
+
+  closeHeroTrain() {
+    this.ui.heroTrainPanel.style.display = 'none';
+  }
+
+  openShop() {
+    this.ui.shopPanel.style.display = 'flex';
+    this.renderShop();
+  }
+
+  closeShop() {
+    this.ui.shopPanel.style.display = 'none';
+  }
+
   requestNextWave() {
     if (this.gameOver || !this.gameStarted) return;
     if (this.waveManager.waveActive) return;
@@ -1028,11 +1279,54 @@ class Game {
     }, duration);
   }
 
+  showToast(text, duration = 2200) {
+    let el = document.getElementById('ui-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ui-toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.style.display = 'block';
+    clearTimeout(this._toastTimeout);
+    this._toastTimeout = setTimeout(() => { el.style.display = 'none'; }, duration);
+  }
+
+  getStamina() {
+    const s = this.progress.stamina;
+    const now = Date.now();
+    const regenMs = 5 * 60 * 1000;
+    const gained = Math.floor((now - s.lastRegen) / regenMs);
+    if (gained > 0 && s.value < s.max) {
+      s.value = Math.min(s.max, s.value + gained);
+      s.lastRegen += gained * regenMs;
+      saveProgress(this.progress);
+    }
+    return s;
+  }
+
+  spendStamina(cost) {
+    const s = this.getStamina();
+    if (s.value < cost) return false;
+    s.value -= cost;
+    saveProgress(this.progress);
+    this.updateStaminaUI();
+    return true;
+  }
+
+  updateStaminaUI() {
+    const s = this.getStamina();
+    const el = this.ui.staminaEl;
+    if (el) el.textContent = `${s.value}/${s.max}`;
+    return s;
+  }
+
   updateUI() {
     this.ui.goldEl.textContent = this.gold;
     this.ui.baseHPEl.textContent = this.baseHP;
     this.ui.waveEl.textContent = `${this.waveNum}/${this.maxWaves}`;
     this.ui.killsEl.textContent = this.totalKills;
+    this.updateStaminaUI();
 
     if (this.gameOver || !this.gameStarted) {
       this.ui.nextWaveBtn.disabled = true;
@@ -1158,6 +1452,17 @@ class Game {
     this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
+    // 点击英雄：选中/取消选中，随后点击地图移动
+    const heroMeshes = this.heroManager.heroes.map(h => h.mesh);
+    const heroHits = this.raycaster.intersectObjects(heroMeshes, true);
+    if (heroHits.length > 0) {
+      this.heroSelected = !this.heroSelected;
+      this.heroManager.setSelected(this.heroSelected);
+      this.showMessage(this.heroSelected ? '已选中英雄，点击地图移动' : '已取消选中英雄', 1400);
+      this.hideBuildPanel();
+      return;
+    }
+
     const towerMeshes = this.towerManager.towers.map(t => t.mesh);
     const towerHits = this.raycaster.intersectObjects(towerMeshes, true);
     if (towerHits.length > 0) {
@@ -1165,6 +1470,8 @@ class Game {
       while (obj) {
         const tower = this.towerManager.towers.find(t => t.mesh === obj);
         if (tower) {
+          this.heroSelected = false;
+          this.heroManager.setSelected(false);
           this.hideBuildPanel();
           this.selectedItem = null;
           this.updateItemUI();
@@ -1193,8 +1500,18 @@ class Game {
           return;
         }
 
+        if (this.selectedSkill) {
+          const id = this.selectedSkill;
+          this.selectedSkill = null;
+          this.updateSkillUI();
+          this.useSkillAt(id, point);
+          return;
+        }
+
         const towerAt = this.towerManager.getTowerAtCell(cell.x, cell.z);
         if (towerAt) {
+          this.heroSelected = false;
+          this.heroManager.setSelected(false);
           this.hideBuildPanel();
           this.selectedItem = null;
           this.updateItemUI();
@@ -1203,6 +1520,11 @@ class Game {
             this.showTowerInfo(info);
             this.showRangeAt(info.pos, info.levelDef.range, '#6ee7ff');
           }
+          return;
+        }
+
+        if (this.heroSelected) {
+          this.heroManager.moveHeroTo(point);
           return;
         }
 
@@ -1217,12 +1539,6 @@ class Game {
           this.showBuildPanel(cell);
           return;
         }
-
-        // 道路/建筑区域：移动英雄
-        if (this.hero) {
-          this.heroManager.moveHeroTo(point);
-          return;
-        }
       }
     }
 
@@ -1234,6 +1550,8 @@ class Game {
     if (this.gameOver || !this.gameStarted) return;
     e.preventDefault();
     this.selectedTowerType = null;
+    this.heroSelected = false;
+    this.heroManager.setSelected(false);
     this.selectedItem = null;
     document.querySelectorAll('.tower-btn').forEach(b => b.classList.remove('selected'));
     this.hideBuildPreview();
@@ -1274,7 +1592,7 @@ class Game {
     }
     if (!this.gameStarted) return;
     switch (e.key) {
-      case 'Escape': this.hideBuildPanel(); this.hideTowerInfo(); this.selectedTowerType = null; this.selectedItem = null; this.hideBuildPreview(); this.hideRange(); break;
+      case 'Escape': this.hideBuildPanel(); this.hideTowerInfo(); this.selectedTowerType = null; this.selectedItem = null; this.heroSelected = false; this.heroManager.setSelected(false); this.hideBuildPreview(); this.hideRange(); break;
       case '1': this.selectTowerType('arrow'); break;
       case '2': this.selectTowerType('magic'); break;
       case '3': this.selectTowerType('cannon'); break;
@@ -1290,6 +1608,7 @@ class Game {
 
     const rawDt = Math.min(this.clock.getDelta(), 0.1);
     const dt = this.gamePaused ? 0 : rawDt * this.gameSpeed;
+    this.updateStaminaUI();
 
     this.updateBossWarnings(rawDt);
 

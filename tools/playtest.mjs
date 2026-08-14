@@ -242,7 +242,7 @@ if (mode === 'basic') {
       const t2 = g.towerManager.towers.find(t => t.type === 'ice');
       const place = (tower, offset = 0) => {
         const p = near(tower) + offset;
-        const m = mm.spawnMonster('troll', 0, 1);
+        const m = mm.spawnMonster('heavyDemon', 0, 1);
         m.pathProgress = p;
         m.speed = 0;
         m.mesh.position.copy(mm.getPositionOnPath(mm.paths[0].points, p));
@@ -253,7 +253,7 @@ if (mode === 'basic') {
       place(t1);
       place(t2);
     });
-    await page.waitForTimeout(6500);
+    await page.waitForTimeout(5000);
     const result = await page.evaluate(() => {
       const g = window.game;
       const ms = g.monsterManager.monsters;
@@ -262,10 +262,10 @@ if (mode === 'basic') {
         arrowLevel: ts.find(t => t.type === 'arrow')?.level,
         cannonLevel: ts.find(t => t.type === 'cannon')?.level,
         iceLevel: ts.find(t => t.type === 'ice')?.level,
-        trollDamaged: ms.filter(m => m.type === 'troll' && m.hp < m.maxHp).length,
-        trollCount: ms.filter(m => m.type === 'troll').length,
-        cannonBurn: ms.some(m => m.type === 'troll' && m.burnStacks.length > 0),
-        cannonShred: ms.some(m => m.type === 'troll' && m.armorShred > 0),
+        demonDamaged: ms.filter(m => m.type === 'heavyDemon' && m.hp < m.maxHp).length,
+        demonCount: ms.filter(m => m.type === 'heavyDemon').length,
+        cannonBurn: ms.some(m => m.type === 'heavyDemon' && m.burnStacks.length > 0),
+        cannonShred: ms.some(m => m.type === 'heavyDemon' && m.armorShred > 0),
         iceFreezeSeen: !!window.__freezeSeen,
         alive: ms.length
       };
@@ -274,6 +274,112 @@ if (mode === 'basic') {
     console.log(JSON.stringify({ mode, result, errors }, null, 2));
   } catch (err) {
     await page.screenshot({ path: 'tools/shot-mech-fail.png' });
+    console.log(JSON.stringify({ mode, fail: String(err), errors }, null, 2));
+    await browser.close();
+    process.exit(1);
+  }
+} else if (mode === 'meta') {
+  try {
+    await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+    await page.waitForSelector('#main-menu', { state: 'visible', timeout: 8000 });
+
+    // 英雄培养面板
+    await page.click('#btn-heroes-menu');
+    await page.waitForSelector('#hero-train-panel', { state: 'visible', timeout: 5000 });
+    const train = await page.evaluate(() => ({
+      visible: document.getElementById('hero-train-panel').style.display !== 'none',
+      cards: document.querySelectorAll('.train-card').length,
+      coins: document.getElementById('train-coins').textContent
+    }));
+    await page.click('#close-train');
+
+    // 商店购买
+    await page.click('#btn-shop-menu');
+    await page.waitForSelector('#shop-panel', { state: 'visible', timeout: 5000 });
+    const shop = await page.evaluate(() => {
+      const g = window.game;
+      g.progress.coins = 500;
+      g.renderShop();
+      document.querySelector('.shop-buy[data-skill="arrowRain"]').click();
+      return {
+        rows: document.querySelectorAll('.shop-row').length,
+        owned: g.progress.shopSkills.arrowRain,
+        coins: g.progress.coins
+      };
+    });
+    await page.click('#close-shop');
+
+    // 体力不足拦截
+    await page.evaluate(() => {
+      const g = window.game;
+      g.progress.stamina.value = 3;
+      g.progress.stamina.max = 20;
+      g.progress.stamina.lastRegen = Date.now();
+      g.updateStaminaUI();
+    });
+    await page.click('#btn-start-menu');
+    await page.waitForSelector('#level-select', { state: 'visible', timeout: 5000 });
+    await page.locator('.level-card').first().click();
+    await page.waitForTimeout(300);
+    const blocked = await page.evaluate(() => ({
+      started: window.game.gameStarted,
+      toast: document.getElementById('ui-toast')?.style.display
+    }));
+
+    // 体力充足后进入战斗
+    await page.evaluate(() => {
+      const g = window.game;
+      g.progress.stamina.value = 20;
+      g.progress.stamina.max = 20;
+      g.progress.stamina.lastRegen = Date.now();
+      g.updateStaminaUI();
+    });
+    await page.locator('.level-card').first().click();
+    await page.waitForTimeout(900);
+    const battle = await page.evaluate(() => {
+      const g = window.game;
+      return {
+        started: g.gameStarted,
+        stamina: g.progress.stamina.value,
+        heroSelected: g.heroSelected
+      };
+    });
+
+    // 英雄选中与移动
+    const heroMove = await page.evaluate(() => {
+      const g = window.game;
+      g.heroManager.setSelected(true);
+      const ringVisible = g.heroManager.getActiveHero().ring.visible;
+      g.heroManager.moveHeroTo(g.map.getCellCenterWorld(8, 8));
+      return { ringVisible, path: g.heroManager.path.length };
+    });
+
+    // 商店技能在战斗内使用
+    const skillUse = await page.evaluate(() => {
+      const g = window.game;
+      g.baseHP = 5;
+      g.skills.healWave = 1;
+      g.updateSkillUI();
+      document.querySelector('.skill-btn[data-skill="healWave"]').click();
+      return { hp: g.baseHP, left: g.skills.healWave };
+    });
+
+    // 怪物比例与肢体动画结构
+    const monster = await page.evaluate(() => {
+      const g = window.game;
+      const m = g.monsterManager.spawnMonster('goblin', 0, 1);
+      const limbs = m.mesh.userData.limbs || {};
+      return {
+        scale: +(m.mesh.scale.y || 0).toFixed(3),
+        hasLimbs: !!(limbs.leftLeg && limbs.rightLeg && limbs.leftArm && limbs.rightArm),
+        targetHeight: m.visualScale
+      };
+    });
+
+    await page.screenshot({ path: 'tools/shot-meta.png' });
+    console.log(JSON.stringify({ mode, train, shop, blocked, battle, heroMove, skillUse, monster, errors }, null, 2));
+  } catch (err) {
+    await page.screenshot({ path: 'tools/shot-meta-fail.png' });
     console.log(JSON.stringify({ mode, fail: String(err), errors }, null, 2));
     await browser.close();
     process.exit(1);

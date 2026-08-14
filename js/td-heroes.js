@@ -150,10 +150,20 @@ export class HeroManager {
 
     group.position.copy(spawnPos);
     group.position.y = 0.2;
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.32, 0.44, 20),
+      new THREE.MeshBasicMaterial({ color: '#6ee7ff', side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    ring.visible = false;
+    group.add(ring);
     this.heroGroup.add(group);
 
     const hero = {
       index, id: def.id, def, mesh: group, level,
+      ring,
       damage: def.damage * dmgBonus,
       atkSpeed: def.atkSpeed, range: def.range,
       speed: def.speed * speedBonus,
@@ -164,10 +174,19 @@ export class HeroManager {
     return hero;
   }
 
+  setSelected(selected) {
+    this.heroSelected = selected;
+    for (const h of this.heroes) {
+      if (h.ring) h.ring.visible = false;
+    }
+    const hero = this.getActiveHero();
+    if (hero && selected && hero.ring) hero.ring.visible = true;
+  }
+
   getHeroLevel(id) {
     if (!this.game || !this.game.progress) return 1;
-    const exp = (this.game.progress.heroExp && this.game.progress.heroExp[id]) || 0;
-    return Math.min(30, 1 + Math.floor(exp / 100));
+    const lv = this.game.progress.heroLevels && this.game.progress.heroLevels[id];
+    return Math.min(30, Math.max(1, lv || 1));
   }
 
   getActiveHero() {
