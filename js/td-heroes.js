@@ -2,6 +2,7 @@
  * 英雄系统 - 2英雄 + 主动技能
  */
 import * as THREE from 'three';
+import { toonMaterial } from './td-style.js';
 
 const HERO_DEFS = [
   {
@@ -98,39 +99,52 @@ export class HeroManager {
     const dmgBonus = 1 + (level - 1) * 0.02;
     const speedBonus = 1 + (level - 1) * 0.01;
     const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.4, metalness: 0.1 });
+    const accent = index === 0 ? '#ffd66e' : '#b28cff';
+    const mat = toonMaterial(def.color, { roughness: 0.45 });
 
-    const bodyGeo = new THREE.BoxGeometry(0.4, 0.6, 0.3);
-    const body = new THREE.Mesh(bodyGeo, mat);
-    body.position.y = 0.55;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.62, 0.32), mat);
+    body.position.y = 0.56;
     body.castShadow = true;
     group.add(body);
 
-    const headGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-    const head = new THREE.Mesh(headGeo, mat);
-    head.position.y = 0.95;
+    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.16), toonMaterial(accent, { emissive: accent, emissiveIntensity: 0.18 }));
+    chest.position.y = 0.62;
+    chest.position.z = 0.02;
+    group.add(chest);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 8), toonMaterial('#ffe8d6'));
+    head.position.y = 1.02;
     head.castShadow = true;
     group.add(head);
 
-    const hatGeo = new THREE.ConeGeometry(0.2, 0.3, 6);
-    const hat = new THREE.Mesh(hatGeo, new THREE.MeshStandardMaterial({ color: '#5d3a1a', roughness: 0.6 }));
-    hat.position.y = 1.15;
+    const hair = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.32, 8), toonMaterial(index === 0 ? '#f2c94c' : '#a78bfa', { emissive: accent, emissiveIntensity: 0.12 }));
+    hair.position.y = 1.2;
+    group.add(hair);
+
+    const eyeGeo = new THREE.SphereGeometry(0.035, 6, 6);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: '#4a3f8f' });
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeL.position.set(-0.09, 1.05, 0.17);
+    group.add(eyeL);
+    const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeR.position.set(0.09, 1.05, 0.17);
+    group.add(eyeR);
+
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.3, 8), toonMaterial('#5d3a1a', { roughness: 0.6 }));
+    hat.position.y = 1.28;
     group.add(hat);
 
     if (index === 0) {
-      const bowGeo = new THREE.TorusGeometry(0.2, 0.03, 4, 6, Math.PI * 1.2);
-      const bow = new THREE.Mesh(bowGeo, new THREE.MeshStandardMaterial({ color: '#8b4513', roughness: 0.5 }));
+      const bow = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.035, 6, 8, Math.PI * 1.2), toonMaterial('#f2c94c', { emissive: '#ffd66e', emissiveIntensity: 0.25 }));
       bow.rotation.z = Math.PI / 2;
-      bow.position.set(0.25, 0.6, 0);
+      bow.position.set(0.28, 0.62, 0);
       group.add(bow);
     } else {
-      const staffGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.8, 6);
-      const staff = new THREE.Mesh(staffGeo, new THREE.MeshStandardMaterial({ color: '#5d3a1a' }));
-      staff.position.set(0.25, 0.5, 0);
+      const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.9, 6), toonMaterial('#5d3a1a'));
+      staff.position.set(0.28, 0.5, 0);
       group.add(staff);
-      const orbGeo = new THREE.SphereGeometry(0.1, 8, 6);
-      const orb = new THREE.Mesh(orbGeo, new THREE.MeshStandardMaterial({ color: '#9b59b6', emissive: '#9b59b6', emissiveIntensity: 0.5 }));
-      orb.position.set(0.25, 0.9, 0);
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), new THREE.MeshBasicMaterial({ color: '#b28cff' }));
+      orb.position.set(0.28, 0.95, 0);
       group.add(orb);
     }
 

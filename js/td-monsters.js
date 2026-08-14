@@ -3,34 +3,35 @@
  * 支持单/双路径(entry 索引) 与按波次血量缩放
  */
 import * as THREE from 'three';
+import { toonMaterial } from './td-style.js';
 
 // 怪物定义
 export const MONSTER_DEFS = {
   // ===== 兽人阵营（第一章） =====
-  goblin:      { name: '哥布林', hp: 80, speed: 1.8, armor: 0, magicResist: 0, reward: 8, livesCost: 1, color: '#4caf50', size: [0.25,0.5,0.25], flying: false },
-  orc:         { name: '兽人小兵', hp: 100, speed: 1.5, armor: 10, magicResist: 0, reward: 10, livesCost: 1, color: '#2e7d32', size: [0.35,0.7,0.35], flying: false },
-  wolfRider:   { name: '狼骑兵', hp: 250, speed: 2.0, armor: 15, magicResist: 5, reward: 40, livesCost: 2, color: '#795548', size: [0.35,0.6,0.5], flying: false },
-  shadow:      { name: '暗影刺客', hp: 200, speed: 2.2, armor: 10, magicResist: 10, reward: 35, livesCost: 2, color: '#4a148c', size: [0.25,0.5,0.25], flying: false },
-  gargoyle:    { name: '石像鬼', hp: 120, speed: 1.8, armor: 5, magicResist: 0, reward: 15, livesCost: 1, color: '#607d8b', size: [0.4,0.5,0.4], flying: true },
-  troll:       { name: '巨魔', hp: 300, speed: 1.2, armor: 20, magicResist: 10, reward: 50, livesCost: 3, color: '#8d6e63', size: [0.45,0.9,0.45], flying: false },
+  goblin:      { name: '哥布林', hp: 70, speed: 1.8, armor: 0, magicResist: 0, reward: 10, livesCost: 1, color: '#4caf50', size: [0.25,0.5,0.25], flying: false },
+  orc:         { name: '兽人小兵', hp: 90, speed: 1.5, armor: 10, magicResist: 0, reward: 12, livesCost: 1, color: '#2e7d32', size: [0.35,0.7,0.35], flying: false },
+  wolfRider:   { name: '狼骑兵', hp: 220, speed: 2.0, armor: 15, magicResist: 5, reward: 45, livesCost: 2, color: '#795548', size: [0.35,0.6,0.5], flying: false },
+  shadow:      { name: '暗影刺客', hp: 180, speed: 2.2, armor: 10, magicResist: 10, reward: 40, livesCost: 2, color: '#4a148c', size: [0.25,0.5,0.25], flying: false },
+  gargoyle:    { name: '石像鬼', hp: 110, speed: 1.8, armor: 5, magicResist: 0, reward: 18, livesCost: 1, color: '#607d8b', size: [0.4,0.5,0.4], flying: true },
+  troll:       { name: '巨魔', hp: 280, speed: 1.2, armor: 20, magicResist: 10, reward: 60, livesCost: 3, color: '#8d6e63', size: [0.45,0.9,0.45], flying: false },
   orcCaptain:  { name: '兽人队长', hp: 3000, speed: 1.0, armor: 50, magicResist: 30, reward: 300, livesCost: 10, color: '#bf360c', size: [0.5,1.0,0.5], flying: false, isBoss: true,
     bossSkill: { type: 'stunTowers', name: '震地眩晕', cooldown: 10, firstDelay: 5, warning: 1, radius: 3, duration: 2 } },
-  fastGoblin:  { name: '疾风哥布林', hp: 60, speed: 4.0, armor: 0, magicResist: 0, reward: 8, livesCost: 1, color: '#66bb6a', size: [0.2,0.4,0.2], flying: false },
+  fastGoblin:  { name: '疾风哥布林', hp: 60, speed: 4.0, armor: 0, magicResist: 0, reward: 10, livesCost: 1, color: '#66bb6a', size: [0.2,0.4,0.2], flying: false },
 
   // ===== 亡灵阵营（第二章） =====
-  skeleton:    { name: '骷髅战士', hp: 90, speed: 1.4, armor: 5, magicResist: 0, reward: 12, livesCost: 1, color: '#e0e0e0', size: [0.3,0.6,0.3], flying: false, undead: true },
-  zombie:      { name: '僵尸', hp: 130, speed: 1.2, armor: 5, magicResist: 0, reward: 10, livesCost: 1, color: '#558b2f', size: [0.3,0.6,0.3], flying: false, undead: true },
-  lich:        { name: '巫妖学徒', hp: 110, speed: 1.8, armor: 0, magicResist: 30, reward: 22, livesCost: 1, color: '#1a237e', size: [0.3,0.6,0.3], flying: false, undead: true },
-  stoneGolem:  { name: '石傀儡', hp: 400, speed: 0.8, armor: 40, magicResist: 15, reward: 40, livesCost: 3, color: '#9e9e9e', size: [0.5,1.0,0.5], flying: false, undead: true },
-  ghost:       { name: '幽灵', hp: 100, speed: 2.2, armor: 0, magicResist: 20, reward: 18, livesCost: 1, color: '#b0bec5', size: [0.3,0.5,0.3], flying: true, undead: true },
+  skeleton:    { name: '骷髅战士', hp: 85, speed: 1.4, armor: 5, magicResist: 0, reward: 14, livesCost: 1, color: '#e0e0e0', size: [0.3,0.6,0.3], flying: false, undead: true },
+  zombie:      { name: '僵尸', hp: 120, speed: 1.2, armor: 5, magicResist: 0, reward: 12, livesCost: 1, color: '#558b2f', size: [0.3,0.6,0.3], flying: false, undead: true },
+  lich:        { name: '巫妖学徒', hp: 100, speed: 1.8, armor: 0, magicResist: 30, reward: 25, livesCost: 1, color: '#1a237e', size: [0.3,0.6,0.3], flying: false, undead: true },
+  stoneGolem:  { name: '石傀儡', hp: 360, speed: 0.8, armor: 40, magicResist: 15, reward: 50, livesCost: 3, color: '#9e9e9e', size: [0.5,1.0,0.5], flying: false, undead: true },
+  ghost:       { name: '幽灵', hp: 95, speed: 2.2, armor: 0, magicResist: 20, reward: 20, livesCost: 1, color: '#b0bec5', size: [0.3,0.5,0.3], flying: true, undead: true },
   skeletonKing:{ name: '骷髅王', hp: 4000, speed: 1.0, armor: 50, magicResist: 30, reward: 500, livesCost: 10, color: '#b71c1c', size: [0.6,1.4,0.6], flying: false, isBoss: true, undead: true,
     bossSkill: { type: 'summon', name: '召唤骷髅', cooldown: 5, firstDelay: 3, summon: { type: 'skeleton', count: 2, hpScale: 0.8 }, maxSummons: 6 } },
 
   // ===== 恶魔阵营（第三章） =====
-  demonImp:    { name: '恶魔小鬼', hp: 90, speed: 2.5, armor: 0, magicResist: 25, reward: 15, livesCost: 1, color: '#d32f2f', size: [0.25,0.45,0.25], flying: false },
-  hellHound:   { name: '地狱犬', hp: 180, speed: 3.0, armor: 10, magicResist: 15, reward: 25, livesCost: 2, color: '#212121', size: [0.4,0.5,0.6], flying: false },
-  heavyDemon:  { name: '重甲恶魔', hp: 520, speed: 1.0, armor: 50, magicResist: 25, reward: 60, livesCost: 4, color: '#b71c1c', size: [0.5,1.1,0.5], flying: false },
-  wyvern:      { name: '双足飞龙', hp: 240, speed: 2.0, armor: 10, magicResist: 10, reward: 30, livesCost: 2, color: '#6a1b9a', size: [0.45,0.5,0.5], flying: true },
+  demonImp:    { name: '恶魔小鬼', hp: 85, speed: 2.5, armor: 0, magicResist: 25, reward: 18, livesCost: 1, color: '#d32f2f', size: [0.25,0.45,0.25], flying: false },
+  hellHound:   { name: '地狱犬', hp: 170, speed: 3.0, armor: 10, magicResist: 15, reward: 30, livesCost: 2, color: '#212121', size: [0.4,0.5,0.6], flying: false },
+  heavyDemon:  { name: '重甲恶魔', hp: 480, speed: 1.0, armor: 50, magicResist: 25, reward: 70, livesCost: 4, color: '#b71c1c', size: [0.5,1.1,0.5], flying: false },
+  wyvern:      { name: '双足飞龙', hp: 220, speed: 2.0, armor: 10, magicResist: 10, reward: 35, livesCost: 2, color: '#6a1b9a', size: [0.45,0.5,0.5], flying: true },
   hellGolem:   { name: '地狱魔像', hp: 5200, speed: 0.9, armor: 60, magicResist: 40, reward: 800, livesCost: 12, color: '#ff5722', size: [0.7,1.6,0.7], flying: false, isBoss: true,
     bossSkill: { type: 'slowTowers', name: '火焰冲击波', cooldown: 8, firstDelay: 6, warning: 2, radius: 2.5, duration: 3, slowPct: 0.5 } }
 };
@@ -113,7 +114,7 @@ export class MonsterManager {
   buildMonsterMesh(def) {
     const group = new THREE.Group();
     const s = def.size;
-    const mat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.5 });
+    const mat = toonMaterial(def.color, { roughness: 0.55 });
 
     // 身体
     const bodyGeo = new THREE.BoxGeometry(s[0], s[1] * 0.6, s[2]);
@@ -132,7 +133,7 @@ export class MonsterManager {
 
     // 眼睛
     const eyeGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: def.isBoss ? '#ff0000' : '#ffffff' });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: def.isBoss ? '#ff4d4d' : '#ffffff' });
     const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
     leftEye.position.set(-headSize * 0.2, s[1] * 0.78, headSize * 0.5);
     group.add(leftEye);
@@ -143,7 +144,7 @@ export class MonsterManager {
     // 飞行怪物加翅膀
     if (def.flying) {
       const wingGeo = new THREE.BoxGeometry(0.05, 0.3, 0.15);
-      const wingMat = new THREE.MeshStandardMaterial({ color: '#757575', roughness: 0.6 });
+      const wingMat = toonMaterial('#8f9bb3', { roughness: 0.6 });
       const leftWing = new THREE.Mesh(wingGeo, wingMat);
       leftWing.position.set(-s[0] * 0.6, s[1] * 0.5, 0);
       leftWing.rotation.z = 0.3;
@@ -157,7 +158,7 @@ export class MonsterManager {
     // Boss特效
     if (def.isBoss) {
       const auraGeo = new THREE.RingGeometry(0.4, 0.5, 16);
-      const auraMat = new THREE.MeshBasicMaterial({ color: '#ff0000', side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
+      const auraMat = new THREE.MeshBasicMaterial({ color: '#ff5f6d', side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
       const aura = new THREE.Mesh(auraGeo, auraMat);
       aura.rotation.x = -Math.PI / 2;
       aura.position.y = 0.1;
@@ -387,12 +388,16 @@ export class MonsterManager {
     finalDmg = Math.max(1, Math.round(finalDmg * (0.9 + Math.random() * 0.2)));
     if (!opts.silent && this.game && this.game.showDamageNumber) {
       this.game.showDamageNumber(monster, finalDmg);
+      if (this.game.createHitEffect) this.game.createHitEffect(monster.mesh.position.clone(), '#ffe9b0');
     }
     monster.hp -= finalDmg;
 
     if (monster.hp <= 0) {
       monster.hp = 0;
       monster.dead = true;
+      if (this.game && this.game.createDeathEffect) {
+        this.game.createDeathEffect(monster.mesh.position.clone(), monster.def.color);
+      }
       if (this.onMonsterKilled) this.onMonsterKilled(monster);
     }
   }

@@ -57,8 +57,6 @@ if (mode === 'basic') {
 } else if (mode === 'prd') {
   try {
     await enterFirstLevel();
-    const skipVisible = await page.locator('#tutorial-skip').isVisible().catch(() => false);
-    if (skipVisible) await page.click('#tutorial-skip');
     const state = await page.evaluate(() => {
       const g = window.game;
       return {
@@ -66,21 +64,26 @@ if (mode === 'basic') {
         wave: g.waveNum,
         maxWaves: g.maxWaves,
         gold: g.gold,
-        nextLabel: document.getElementById('next-wave-btn')?.textContent,
-        tutorialVisible: document.getElementById('tutorial-overlay')?.style.display !== 'none',
-        tutorialText: document.getElementById('tutorial-text')?.textContent
+        nextLabel: document.getElementById('next-wave-btn')?.textContent
       };
     });
 
     // 建塔：面板方式
     await page.evaluate(() => {
       const g = window.game;
-      g.showBuildPanel(0);
+      let cell = null;
+      for (let x = 0; x < g.map.gridW && !cell; x++) {
+        for (let z = 0; z < g.map.gridH && !cell; z++) {
+          if (g.map.isPlaceableCell(x, z)) cell = { x, z };
+        }
+      }
+      g.showBuildPanel(cell);
       document.querySelector('.build-tower-btn[data-type="arrow"]').click();
     });
     const afterBuild = await page.evaluate(() => ({
       gold: window.game.gold,
-      towers: window.game.towerManager.towers.length
+      towers: window.game.towerManager.towers.length,
+      rangeVisible: !!window.game.rangeIndicator
     }));
 
     // 开始第一波
@@ -118,9 +121,18 @@ if (mode === 'basic') {
     await enterFirstLevel();
     await page.evaluate(() => {
       const g = window.game;
-      g.tutorial.finish();
       g.startLevel(2); // 3003 BOSS 关
-      g.showBuildPanel(0);
+      const pathCells = [];
+      g.map.paths.forEach(p => p.cells.forEach(c => pathCells.push(c)));
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      let cell = null;
+      for (const c of pathCells) {
+        for (const [dx, dz] of dirs) {
+          const x = c.x + dx, z = c.z + dz;
+          if (g.map.isPlaceableCell(x, z) && !cell) cell = { x, z };
+        }
+      }
+      g.showBuildPanel(cell);
       document.querySelector('.build-tower-btn[data-type="arrow"]').click();
       g.waveManager.currentWave = g.waveManager.totalWaves - 1;
       g.requestNextWave();
@@ -183,23 +195,33 @@ if (mode === 'basic') {
     await enterFirstLevel();
     await page.evaluate(() => {
       const g = window.game;
-      g.tutorial.finish();
       g.gold = 9999;
       g.updateTowerButtons();
 
-      g.showBuildPanel(0);
+      const pathCells = [];
+      g.map.paths.forEach(p => p.cells.forEach(c => pathCells.push(c)));
+      const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      const cells = [];
+      for (const c of pathCells) {
+        for (const [dx, dz] of dirs) {
+          const x = c.x + dx, z = c.z + dz;
+          if (g.map.isPlaceableCell(x, z) && !cells.some(q => q.x === x && q.z === z)) cells.push({ x, z });
+        }
+      }
+
+      g.showBuildPanel(cells[0]);
       document.querySelector('.build-tower-btn[data-type="arrow"]').click();
-      g.towerManager.upgradeTower(0);
+      g.towerManager.upgradeTower(cells[0]);
 
-      g.showBuildPanel(1);
+      g.showBuildPanel(cells[1]);
       document.querySelector('.build-tower-btn[data-type="cannon"]').click();
-      g.towerManager.upgradeTower(1);
-      g.towerManager.upgradeTower(1);
+      g.towerManager.upgradeTower(cells[1]);
+      g.towerManager.upgradeTower(cells[1]);
 
-      g.showBuildPanel(2);
+      g.showBuildPanel(cells[2]);
       document.querySelector('.build-tower-btn[data-type="ice"]').click();
-      g.towerManager.upgradeTower(2);
-      g.towerManager.upgradeTower(2);
+      g.towerManager.upgradeTower(cells[2]);
+      g.towerManager.upgradeTower(cells[2]);
 
       window.__freezeSeen = false;
       const mm = g.monsterManager;

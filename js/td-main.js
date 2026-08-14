@@ -10,7 +10,7 @@ import { MonsterManager } from './td-monsters.js';
 import { HeroManager } from './td-heroes.js';
 import { WaveManager } from './td-waves.js';
 import { AudioManager } from './td-audio.js';
-import { Tutorial } from './td-tutorial.js';
+import { MIHOYO } from './td-style.js';
 
 const PROGRESS_KEY = 'hdw_progress_v1';
 const WAVE_COUNTS = [20, 22, 25, 21, 23, 26, 24, 28];
@@ -64,7 +64,7 @@ class Game {
     this.killCount = 0;
     this.totalKills = 0;
     this.hero = null;
-    this.buildingSpot = null;
+    this.buildingCell = null;
     this.selectedTowerType = null;
     this.items = { bomb: 1, medkit: 1, goldbag: 1, freezerune: 1, totem: 1 };
     this.selectedItem = null;
@@ -73,7 +73,8 @@ class Game {
     this._suppressClick = false;
 
     this.audio = new AudioManager();
-    this.tutorial = new Tutorial(this);
+    this.rangeIndicator = null;
+    this.buildPreview = null;
 
     this.initThree();
     this.initCamera();
@@ -101,8 +102,8 @@ class Game {
     document.getElementById('game-container').prepend(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#87CEEB');
-    this.scene.fog = new THREE.Fog('#87CEEB', 30, 70);
+    this.scene.background = new THREE.Color(MIHOYO.sky);
+    this.scene.fog = new THREE.Fog(MIHOYO.fog, 30, 72);
 
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.5, 100);
     this.camTarget = new THREE.Vector3(14, 0, 10);
@@ -218,10 +219,13 @@ class Game {
   }
 
   initLighting() {
-    const ambient = new THREE.AmbientLight('#ffffff', 0.6);
+    const ambient = new THREE.AmbientLight('#e8f4ff', 0.7);
     this.scene.add(ambient);
 
-    const sun = new THREE.DirectionalLight('#ffffff', 1.2);
+    const hemi = new THREE.HemisphereLight('#cfefff', '#7fd27f', 0.55);
+    this.scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight('#fff3d6', 1.35);
     sun.position.set(20, 30, 10);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -356,7 +360,7 @@ class Game {
     this.ui.buildTowerBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         this.audio.play('click');
-        this.buildTowerAtSpot(btn.dataset.type);
+        if (this.buildingCell) this.buildTowerAtCell(btn.dataset.type, this.buildingCell);
       });
     });
     this.ui.itemBtns.forEach(btn => {
@@ -374,7 +378,6 @@ class Game {
 
   showMainMenu() {
     this.gameStarted = false;
-    if (this.tutorial) this.tutorial.hide();
     this.ui.mainMenu.style.display = 'flex';
     this.ui.levelSelect.style.display = 'none';
     this.ui.gameOverPanel.style.display = 'none';
@@ -387,7 +390,6 @@ class Game {
 
   showLevelSelect() {
     this.gameStarted = false;
-    if (this.tutorial) this.tutorial.hide();
     this.ui.mainMenu.style.display = 'none';
     this.ui.gameOverPanel.style.display = 'none';
     this.ui.levelSelect.style.display = 'flex';
@@ -456,10 +458,6 @@ class Game {
     this.audio.startMusic(LEVEL_CONFIGS[levelIndex].chapter);
     this.audio.play('waveStart');
 
-    if (this.tutorial.shouldStart(levelIndex)) {
-      this.tutorial.start();
-    }
-
     this.updateHeroUI();
     this.updateUI();
     this.showMessage('准备阶段：部署防御塔，点击“开始防御”开战', 2600);
@@ -481,12 +479,14 @@ class Game {
     this.killCount = 0;
     this.totalKills = 0;
     this.hero = null;
-    this.buildingSpot = null;
+    this.buildingCell = null;
     this.selectedTowerType = null;
     this.selectedItem = null;
     this.items = { bomb: 1, medkit: 1, goldbag: 1, freezerune: 1, totem: 1 };
     this.bossWarnings.forEach(w => this.scene.remove(w.mesh));
     this.bossWarnings = [];
+    this.hideRange();
+    this.hideBuildPreview();
 
     this.map.reset(this.currentLevel);
     this.towerManager.reset();
@@ -568,7 +568,6 @@ class Game {
     this.ui.resultNextBtn.style.display = hasNext ? 'inline-block' : 'none';
     this.ui.gameOverPanel.style.display = 'flex';
     document.getElementById('game-container').classList.add('in-menu');
-    if (this.tutorial) this.tutorial.finish();
   }
 
   gameLose() {
@@ -590,7 +589,6 @@ class Game {
     this.ui.resultNextBtn.style.display = 'none';
     this.ui.gameOverPanel.style.display = 'flex';
     document.getElementById('game-container').classList.add('in-menu');
-    if (this.tutorial) this.tutorial.finish();
   }
 
   spendGold(amount) {
@@ -647,21 +645,100 @@ class Game {
     }, ms);
   }
 
+  createHitEffect(pos, color) {
+    const mesh = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.12, 0),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
+    );
+    mesh.position.copy(pos);
+    mesh.position.y += 0.5;
+    this.scene.add(mesh);
+    let life = 0.25;
+    const tick = () => {
+      life -= 0.016;
+      if (life <= 0) { this.scene.remove(mesh); return; }
+      mesh.scale.multiplyScalar(1.35);
+      mesh.material.opacity = Math.max(0, life * 3.6);
+      requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  createDeathEffect(pos, color) {
+    const parts = [];
+    for (let i = 0; i < 8; i++) {
+      const p = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.08, 0.08),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 })
+      );
+      p.position.copy(pos).add(new THREE.Vector3(
+        (Math.random() - 0.5) * 0.4,
+        0.5 + Math.random() * 0.5,
+        (Math.random() - 0.5) * 0.4
+      ));
+      this.scene.add(p);
+      parts.push({
+        mesh: p,
+        vx: (Math.random() - 0.5) * 2.4,
+        vy: 1.6 + Math.random() * 2.2,
+        vz: (Math.random() - 0.5) * 2.4,
+        life: 0.7
+      });
+    }
+    const tick = () => {
+      let alive = false;
+      for (const part of parts) {
+        part.life -= 0.016;
+        if (part.life <= 0) { this.scene.remove(part.mesh); continue; }
+        alive = true;
+        part.mesh.position.x += part.vx * 0.016;
+        part.mesh.position.y += part.vy * 0.016;
+        part.vy -= 5 * 0.016;
+        part.mesh.material.opacity = Math.max(0, part.life / 0.7);
+        part.mesh.rotation.x += 0.2;
+        part.mesh.rotation.z += 0.15;
+      }
+      if (alive) requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  createMuzzleFlash(pos, color) {
+    const mesh = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.16, 0),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false })
+    );
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    let life = 0.12;
+    const tick = () => {
+      life -= 0.016;
+      if (life <= 0) { this.scene.remove(mesh); return; }
+      mesh.scale.multiplyScalar(1.4);
+      mesh.material.opacity = Math.max(0, life * 8);
+      requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
   selectTowerType(type) {
     const btn = document.querySelector(`.tower-btn[data-type="${type}"]`);
     if (!btn) return;
     if (btn.classList.contains('selected')) {
       btn.classList.remove('selected');
       this.selectedTowerType = null;
+      this.hideBuildPreview();
+      this.hideRange();
     } else {
       this.ui.towerBtns.forEach(b => b.classList.remove('selected'));
       btn.classList.add('selected');
       this.selectedTowerType = type;
+      this.hideBuildPanel();
+      this.hideTowerInfo();
     }
   }
 
-  buildTowerAtSpot(type) {
-    if (this.buildingSpot === null) return;
+  buildTowerAtCell(type, cell) {
     const defs = this.towerManager.towerDefs;
     const def = defs[type];
     if (!def) return;
@@ -671,21 +748,25 @@ class Game {
       this.audio.play('click');
       return;
     }
-    const success = this.towerManager.placeTower(this.buildingSpot, type);
+    if (!this.map.isPlaceableCell(cell.x, cell.z)) {
+      this.showMessage('这里不能建造防御塔', 1200);
+      return;
+    }
+    const success = this.towerManager.placeTower(cell, type);
     if (success) {
       this.hideBuildPanel();
       this.audio.play('build');
       this.updateUI();
       this.updateTowerButtons();
-      if (this.tutorial) this.tutorial.onEvent(type === 'arrow' ? 'towerBuilt' : type === 'magic' ? 'magicBuilt' : '');
+      this.showRangeAt(this.map.getCellCenterWorld(cell.x, cell.z), def.levels[0].range, '#6ee7ff');
     }
   }
 
-  showBuildPanel(spotIndex) {
-    this.buildingSpot = spotIndex;
+  showBuildPanel(cell) {
+    this.buildingCell = { x: cell.x, z: cell.z };
     this.hideTowerInfo();
     this.ui.towerBuildPanel.style.display = 'flex';
-    this.ui.buildSpotLabel.textContent = `塔位 #${spotIndex + 1}`;
+    this.ui.buildSpotLabel.textContent = `建造位置 (${cell.x}, ${cell.z})`;
     const btns = this.ui.buildTowerBtns;
     const defs = this.towerManager.towerDefs;
     btns.forEach(btn => {
@@ -697,11 +778,13 @@ class Game {
         btn.classList.toggle('disabled', this.gold < cost);
       }
     });
+    this.showRangeAt(this.map.getCellCenterWorld(cell.x, cell.z), 2.5, '#a8b8d8');
   }
 
   hideBuildPanel() {
-    this.buildingSpot = null;
+    this.buildingCell = null;
     this.ui.towerBuildPanel.style.display = 'none';
+    if (!this.selectedTowerType) this.hideRange();
   }
 
   showTowerInfo(info) {
@@ -726,25 +809,28 @@ class Game {
   hideTowerInfo() {
     this.ui.infoPanel.style.display = 'none';
     this.towerManager.hideTowerMenu();
+    this.hideRange();
   }
 
   upgradeTower() {
     const tower = this.towerManager.selectedTower;
     if (!tower) return;
-    const success = this.towerManager.upgradeTower(tower.spotIndex);
+    const success = this.towerManager.upgradeTower(tower.cell);
     if (success) {
-      const info = this.towerManager.showTowerMenu(tower.spotIndex);
-      if (info) this.showTowerInfo(info);
+      const info = this.towerManager.showTowerMenu(tower.cell);
+      if (info) {
+        this.showTowerInfo(info);
+        this.showRangeAt(info.pos, info.levelDef.range, '#ffd66e');
+      }
       this.updateUI();
       this.updateTowerButtons();
-      if (this.tutorial) this.tutorial.onEvent('towerUpgraded');
     }
   }
 
   sellTower() {
     const tower = this.towerManager.selectedTower;
     if (!tower) return;
-    this.towerManager.sellTower(tower.spotIndex);
+    this.towerManager.sellTower(tower.cell);
     this.hideTowerInfo();
     this.updateUI();
     this.updateTowerButtons();
@@ -753,7 +839,6 @@ class Game {
   useHeroSkill() {
     if (!this.hero || this.gameOver) return;
     this.heroManager.useHeroSkill(this.heroManager.activeHeroIndex);
-    if (this.tutorial) this.tutorial.onEvent('heroSkill');
     this.updateHeroUI();
   }
 
@@ -844,19 +929,16 @@ class Game {
       this.showMessage(`炸弹命中 ${hits} 只怪物`, 1400);
       this.items[id]--;
     } else if (id === 'totem') {
-      const cx = Math.floor(point.x), cz = Math.floor(point.z);
-      if (cx < 0 || cz < 0 || cx >= this.map.gridW || cz >= this.map.gridH) return;
-      if (this.map.isPathCell(cx, cz)) {
-        this.showMessage('图腾不能放在道路上', 1400);
+      const cell = this.map.getCellFromWorld(point);
+      if (!this.map.isPlaceableCell(cell.x, cell.z)) {
+        this.showMessage('这里不能放置图腾', 1400);
         return;
       }
-      const occupied = this.towerManager.towers.some(t => Math.floor(t.pos.x) === cx && Math.floor(t.pos.z) === cz);
-      if (occupied) {
+      if (this.towerManager.getTowerAtCell(cell.x, cell.z)) {
         this.showMessage('这里已经有防御塔', 1400);
         return;
       }
-      const worldPos = new THREE.Vector3(cx + 0.5, 0.3, cz + 0.5);
-      this.towerManager.addTemporaryTower('arrow', worldPos, 2, 15);
+      this.towerManager.addTemporaryTower('arrow', cell, 2, 15);
       this.audio.play('build');
       this.showMessage('援军图腾：2级箭塔参战15秒', 1400);
       this.items[id]--;
@@ -984,6 +1066,90 @@ class Game {
     });
   }
 
+  showRangeAt(pos, radius, color = '#6ee7ff') {
+    this.hideRange();
+    const group = new THREE.Group();
+    const circle = new THREE.Mesh(
+      new THREE.CircleGeometry(radius, 48),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false })
+    );
+    circle.rotation.x = -Math.PI / 2;
+    circle.position.y = 0.045;
+    group.add(circle);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(radius - 0.06, radius, 48),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.065;
+    group.add(ring);
+    group.position.copy(pos);
+    this.scene.add(group);
+    this.rangeIndicator = group;
+  }
+
+  hideRange() {
+    if (this.rangeIndicator) {
+      this.scene.remove(this.rangeIndicator);
+      this.rangeIndicator = null;
+    }
+  }
+
+  showBuildPreview(cell, range, ok) {
+    this.hideBuildPreview();
+    const group = new THREE.Group();
+    const pos = this.map.getCellCenterWorld(cell.x, cell.z);
+    const color = ok ? '#6ee7ff' : '#ff6b6b';
+    const cellMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.9, 0.9),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false })
+    );
+    cellMesh.rotation.x = -Math.PI / 2;
+    cellMesh.position.y = 0.055;
+    group.add(cellMesh);
+    const circle = new THREE.Mesh(
+      new THREE.CircleGeometry(range, 48),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false })
+    );
+    circle.rotation.x = -Math.PI / 2;
+    circle.position.y = 0.05;
+    group.add(circle);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(range - 0.05, range, 48),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.07;
+    group.add(ring);
+    group.position.copy(pos);
+    this.scene.add(group);
+    this.buildPreview = group;
+  }
+
+  hideBuildPreview() {
+    if (this.buildPreview) {
+      this.scene.remove(this.buildPreview);
+      this.buildPreview = null;
+    }
+  }
+
+  updateBuildPreviewFromMouse() {
+    if (!this.selectedTowerType || !this.gameStarted || this.gameOver) {
+      this.hideBuildPreview();
+      return;
+    }
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const hits = this.raycaster.intersectObject(this.map.groundMesh);
+    if (!hits.length) return;
+    const cell = this.map.getCellFromWorld(hits[0].point);
+    const def = this.towerManager.towerDefs[this.selectedTowerType];
+    if (!def) return;
+    const ok = this.map.isPlaceableCell(cell.x, cell.z) &&
+      !this.towerManager.getTowerAtCell(cell.x, cell.z) &&
+      this.gold >= def.levels[0].cost;
+    this.showBuildPreview(cell, def.levels[0].range, ok);
+  }
+
   onClick(e) {
     if (this._suppressClick) return;
     if (this.gameOver || !this.gameStarted) return;
@@ -1002,33 +1168,23 @@ class Game {
           this.hideBuildPanel();
           this.selectedItem = null;
           this.updateItemUI();
-          const info = this.towerManager.showTowerMenu(tower.spotIndex);
-          if (info) this.showTowerInfo(info);
+          const info = this.towerManager.showTowerMenu(tower.cell);
+          if (info) {
+            this.showTowerInfo(info);
+            this.showRangeAt(info.pos, info.levelDef.range, '#6ee7ff');
+          }
           return;
         }
         obj = obj.parent;
       }
     }
 
-    const spotHits = this.raycaster.intersectObjects(this.map.towerSpotMeshes);
-    if (spotHits.length > 0) {
-      const spotMesh = spotHits[0].object;
-      const spotIndex = this.map.towerSpotMeshes.indexOf(spotMesh);
-      if (spotIndex >= 0 && !this.towerManager.getTowerAt(spotIndex)) {
-        if (this.selectedTowerType) {
-          this.buildingSpot = spotIndex;
-          this.buildTowerAtSpot(this.selectedTowerType);
-          return;
-        }
-        this.showBuildPanel(spotIndex);
-        return;
-      }
-    }
-
-    if (this.hero && this.map.groundMesh) {
+    if (this.map.groundMesh) {
       const groundHits = this.raycaster.intersectObject(this.map.groundMesh);
       if (groundHits.length > 0) {
         const point = groundHits[0].point;
+        const cell = this.map.getCellFromWorld(point);
+
         if (this.selectedItem) {
           const id = this.selectedItem;
           this.selectedItem = null;
@@ -1036,14 +1192,37 @@ class Game {
           this.useItemAt(id, point);
           return;
         }
-        if (this.selectedTowerType) {
-          this.selectedTowerType = null;
-          document.querySelectorAll('.tower-btn').forEach(b => b.classList.remove('selected'));
-          this.showMessage('点击塔位建造防御塔', 1400);
+
+        const towerAt = this.towerManager.getTowerAtCell(cell.x, cell.z);
+        if (towerAt) {
+          this.hideBuildPanel();
+          this.selectedItem = null;
+          this.updateItemUI();
+          const info = this.towerManager.showTowerMenu(towerAt.cell);
+          if (info) {
+            this.showTowerInfo(info);
+            this.showRangeAt(info.pos, info.levelDef.range, '#6ee7ff');
+          }
           return;
         }
-        this.heroManager.moveHeroTo(point);
-        return;
+
+        if (this.selectedTowerType) {
+          this.buildingCell = cell;
+          this.buildTowerAtCell(this.selectedTowerType, cell);
+          this.hideBuildPreview();
+          return;
+        }
+
+        if (this.map.isPlaceableCell(cell.x, cell.z)) {
+          this.showBuildPanel(cell);
+          return;
+        }
+
+        // 道路/建筑区域：移动英雄
+        if (this.hero) {
+          this.heroManager.moveHeroTo(point);
+          return;
+        }
       }
     }
 
@@ -1057,6 +1236,7 @@ class Game {
     this.selectedTowerType = null;
     this.selectedItem = null;
     document.querySelectorAll('.tower-btn').forEach(b => b.classList.remove('selected'));
+    this.hideBuildPreview();
     this.updateItemUI();
     this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -1069,7 +1249,7 @@ class Game {
       while (obj) {
         const tower = this.towerManager.towers.find(t => t.mesh === obj);
         if (tower) {
-          this.towerManager.sellTower(tower.spotIndex);
+          this.towerManager.sellTower(tower.cell);
           this.audio.play('sell');
           this.hideTowerInfo();
           this.updateUI();
@@ -1084,6 +1264,7 @@ class Game {
   onMouseMove(e) {
     this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    this.updateBuildPreviewFromMouse();
   }
 
   onKeyDown(e) {
@@ -1093,7 +1274,7 @@ class Game {
     }
     if (!this.gameStarted) return;
     switch (e.key) {
-      case 'Escape': this.hideBuildPanel(); this.hideTowerInfo(); this.selectedTowerType = null; this.selectedItem = null; break;
+      case 'Escape': this.hideBuildPanel(); this.hideTowerInfo(); this.selectedTowerType = null; this.selectedItem = null; this.hideBuildPreview(); this.hideRange(); break;
       case '1': this.selectTowerType('arrow'); break;
       case '2': this.selectTowerType('magic'); break;
       case '3': this.selectTowerType('cannon'); break;
@@ -1178,7 +1359,6 @@ class Game {
     this.audio.play('waveStart');
     this.updateUI();
     this.showMessage(`第 ${waveNum} 波来袭！`, 2000);
-    if (this.tutorial) this.tutorial.onEvent('waveStarted');
   }
 
   onWaveComplete(waveNum) {
@@ -1190,7 +1370,6 @@ class Game {
     this.audio.play('waveComplete');
     this.updateUI();
     this.showMessage(`波次完成！+${reward}G`, 2000);
-    if (this.tutorial) this.tutorial.onWaveComplete(waveNum);
   }
 
   onAllWavesComplete() {

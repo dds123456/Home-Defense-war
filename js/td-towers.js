@@ -2,6 +2,7 @@
  * 防御塔系统 - 4种塔×3级
  */
 import * as THREE from 'three';
+import { toonMaterial } from './td-style.js';
 
 // 塔配置
 const TOWER_DEFS = {
@@ -66,16 +67,16 @@ export class TowerManager {
     this.selectedTower = null;
   }
 
-  getTowerAt(spotIndex) {
-    return this.towers.find(t => t.spotIndex === spotIndex) || null;
+  getTowerAtCell(x, z) {
+    return this.towers.find(t => t.cell && t.cell.x === x && t.cell.z === z) || null;
   }
 
   getTowerDef(type) {
     return TOWER_DEFS[type];
   }
 
-  selectTower(spotIndex) {
-    this.selectedTower = this.getTowerAt(spotIndex);
+  selectTower(cell) {
+    this.selectedTower = this.getTowerAtCell(cell.x, cell.z);
     return this.selectedTower;
   }
 
@@ -83,25 +84,27 @@ export class TowerManager {
     this.selectedTower = null;
   }
 
-  canPlaceTower(spotIndex, type) {
-    if (this.getTowerAt(spotIndex)) return false;
+  canPlaceTower(cell, type) {
+    if (!cell) return false;
+    if (this.getTowerAtCell(cell.x, cell.z)) return false;
     const def = TOWER_DEFS[type];
     if (!def) return false;
+    if (!this.game.map.isPlaceableCell(cell.x, cell.z)) return false;
     return this.game.gold >= def.levels[0].cost;
   }
 
-  placeTower(spotIndex, type) {
-    if (!this.canPlaceTower(spotIndex, type)) return false;
+  placeTower(cell, type) {
+    if (!this.canPlaceTower(cell, type)) return false;
     const def = TOWER_DEFS[type];
     const cost = def.levels[0].cost;
     if (!this.game.spendGold(cost)) return false;
 
-    const pos = this.game.map.getTowerSpotWorldPos(spotIndex);
+    const pos = this.game.map.getCellCenterWorld(cell.x, cell.z);
     const mesh = this.buildTowerMesh(type, 1, pos);
     this.towerGroup.add(mesh);
 
     this.towers.push({
-      spotIndex, type, level: 1, mesh, pos,
+      cell: { x: cell.x, z: cell.z }, type, level: 1, mesh, pos,
       cooldown: 0, chargeTimer: 0, target: null,
       stunDuration: 0, atkSpeedMul: 1, atkSpeedMulTimer: 0,
       freezePulseTimer: 4, expiry: 0,
@@ -111,13 +114,14 @@ export class TowerManager {
     return true;
   }
 
-  addTemporaryTower(type, pos, level = 2, duration = 15) {
+  addTemporaryTower(type, cell, level = 2, duration = 15) {
     const def = TOWER_DEFS[type];
-    if (!def) return null;
+    if (!def || this.getTowerAtCell(cell.x, cell.z)) return null;
+    const pos = this.game.map.getCellCenterWorld(cell.x, cell.z);
     const mesh = this.buildTowerMesh(type, level, pos);
     this.towerGroup.add(mesh);
     const tower = {
-      spotIndex: -1, cell: { x: Math.round(pos.x - 0.5), z: Math.round(pos.z - 0.5) },
+      cell: { x: cell.x, z: cell.z },
       type, level, mesh, pos: pos.clone(),
       cooldown: 0, chargeTimer: 0, target: null,
       stunDuration: 0, atkSpeedMul: 1, atkSpeedMulTimer: 0,
@@ -128,8 +132,8 @@ export class TowerManager {
     return tower;
   }
 
-  upgradeTower(spotIndex) {
-    const tower = this.getTowerAt(spotIndex);
+  upgradeTower(cell) {
+    const tower = this.getTowerAtCell(cell.x, cell.z);
     if (!tower || tower.level >= 3) return false;
 
     const def = TOWER_DEFS[tower.type];
@@ -148,8 +152,8 @@ export class TowerManager {
     return true;
   }
 
-  sellTower(spotIndex) {
-    const tower = this.getTowerAt(spotIndex);
+  sellTower(cell) {
+    const tower = this.getTowerAtCell(cell.x, cell.z);
     if (!tower) return false;
 
     const refund = Math.floor(tower.totalInvested * 0.7);
@@ -160,50 +164,63 @@ export class TowerManager {
     return true;
   }
 
-  sellTowerAt(worldPos) {
-    const spot = this.game.map.getTowerSpot(worldPos);
-    if (spot === null) return false;
-    return this.sellTower(spot);
-  }
-
   buildTowerMesh(type, level, pos) {
     const def = TOWER_DEFS[type];
     const lvl = def.levels[level - 1];
     const group = new THREE.Group();
+    const accent = { arrow: '#ffd66e', magic: '#b28cff', cannon: '#ff8f5e', ice: '#6ee7ff' }[type] || '#ffffff';
+    const bodyColor = { arrow: '#3f9e54', magic: '#7a5cff', cannon: '#e05c3a', ice: '#3fb7e8' }[type] || lvl.color;
 
-    const baseGeo = new THREE.CylinderGeometry(0.35, 0.4, 0.3, 8);
-    const baseMat = new THREE.MeshStandardMaterial({ color: '#888888', roughness: 0.5, metalness: 0.3 });
-    const base = new THREE.Mesh(baseGeo, baseMat);
-    base.position.y = 0.15;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.28, 10), toonMaterial('#cfd4e8', { roughness: 0.8 }));
+    base.position.y = 0.14;
     base.castShadow = true;
     group.add(base);
 
-    const height = 0.6 + level * 0.2;
-    const bodyGeo = new THREE.CylinderGeometry(0.25, 0.3, height, 8);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: lvl.color, roughness: 0.4, metalness: 0.1 });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.3 + height / 2;
+    const height = 0.55 + level * 0.18;
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.34, height, 10),
+      toonMaterial(bodyColor, { roughness: 0.5, emissive: accent, emissiveIntensity: 0.12 })
+    );
+    body.position.y = 0.28 + height / 2;
     body.castShadow = true;
     group.add(body);
 
-    const topGeo = new THREE.SphereGeometry(0.18, 8, 6);
-    const topMat = new THREE.MeshStandardMaterial({ color: lvl.color, roughness: 0.3, emissive: lvl.color, emissiveIntensity: 0.2 });
-    const top = new THREE.Mesh(topGeo, topMat);
-    top.position.y = 0.3 + height + 0.15;
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), new THREE.MeshBasicMaterial({ color: accent }));
+    top.position.y = 0.28 + height + 0.1;
     group.add(top);
 
+    if (type === 'arrow') {
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.42, 8), toonMaterial('#ffd66e', { emissive: '#ffd66e', emissiveIntensity: 0.35 }));
+      tip.position.y = 0.28 + height + 0.42;
+      tip.castShadow = true;
+      group.add(tip);
+    } else if (type === 'magic') {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.045, 8, 12), toonMaterial(accent, { emissive: accent, emissiveIntensity: 0.5 }));
+      ring.rotation.x = Math.PI / 2.6;
+      ring.position.y = 0.28 + height + 0.25;
+      group.add(ring);
+    } else if (type === 'cannon') {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.75, 8), toonMaterial('#3a3f52'));
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.28 + height + 0.2, 0.28);
+      group.add(barrel);
+    } else if (type === 'ice') {
+      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.2, 0), toonMaterial('#6ee7ff', { emissive: '#6ee7ff', emissiveIntensity: 0.5 }));
+      shard.position.y = 0.28 + height + 0.35;
+      shard.castShadow = true;
+      group.add(shard);
+    }
+
     if (level >= 2) {
-      const ringGeo = new THREE.TorusGeometry(0.32, 0.05, 6, 8);
-      const ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({ color: '#ffd700', roughness: 0.3, metalness: 0.7 }));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.05, 8, 12), toonMaterial('#ffd66e', { emissive: '#ffd66e', emissiveIntensity: 0.35 }));
       ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.3 + height / 2;
+      ring.position.y = 0.28 + height / 2;
       group.add(ring);
     }
     if (level >= 3) {
-      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.04, 6, 8),
-        new THREE.MeshStandardMaterial({ color: '#ff4444', roughness: 0.3, emissive: '#ff4444', emissiveIntensity: 0.3 }));
+      const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.04, 8, 12), new THREE.MeshBasicMaterial({ color: '#ff7a7a' }));
       ring2.rotation.x = Math.PI / 2;
-      ring2.position.y = 0.3 + height;
+      ring2.position.y = 0.28 + height + 0.05;
       group.add(ring2);
     }
 
@@ -321,6 +338,10 @@ export class TowerManager {
 
   attack(tower, target, def, lvl) {
     const monsters = this.game.monsterManager.monsters;
+    const flashColor = { arrow: '#ffd66e', magic: '#b28cff', cannon: '#ff8f5e', ice: '#6ee7ff' }[tower.type] || '#ffffff';
+    if (this.game && this.game.createMuzzleFlash) {
+      this.game.createMuzzleFlash(tower.pos.clone().setY(0.7), flashColor);
+    }
     if (tower.type === 'arrow' && lvl.multi > 1) {
       const targets = this.findTopTargets(monsters, def, lvl.range, lvl.multi, tower);
       for (const t of targets) this.createProjectile(tower.pos.clone(), t, tower.type, lvl.damage, 0, lvl, def);
@@ -498,12 +519,13 @@ export class TowerManager {
     return count;
   }
 
-  showTowerMenu(spotIndex) {
-    const tower = this.getTowerAt(spotIndex);
+  showTowerMenu(cell) {
+    const tower = this.getTowerAtCell(cell.x, cell.z);
     if (tower) {
       this.selectedTower = tower;
       return {
-        spotIndex: tower.spotIndex,
+        cell: { x: tower.cell.x, z: tower.cell.z },
+        pos: tower.pos.clone(),
         type: tower.type,
         level: tower.level,
         totalInvested: tower.totalInvested,

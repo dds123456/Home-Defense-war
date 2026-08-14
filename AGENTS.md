@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-基于 Three.js 的 3D 像素风格塔防游戏。玩家通过部署防御塔、使用局内道具和操控英雄，阻止怪物沿路径进攻基地。支持桌面端（键鼠）和移动端（触控）。当前实现按 PRD V1.5 对齐。
+基于 Three.js 的 3D 米哈游风塔防游戏。玩家通过部署防御塔、使用局内道具和操控英雄，阻止怪物沿路径进攻基地。支持桌面端（键鼠）和移动端（触控）。当前实现按 PRD V1.5 对齐并做了米哈游风重构。
 
 ## 技术栈
 
@@ -19,16 +19,16 @@ index.html            # 游戏入口页面（引用构建产物）
 启动游戏.bat          # 双击直接打开 index.html（离线可用）
 本地服务器.bat        # Python 本地服务器模式（端口 5000）
 重新打包.bat          # 重新生成 build/game.bundle.js
-styles/td-main.css    # 游戏界面样式（HUD、塔防面板、道具栏、暂停、引导）
+styles/td-main.css    # 米哈游风界面样式（HUD、塔防面板、道具栏、暂停）
 vendor/three.module.js # three.js r160 本地副本
 build/game.bundle.js  # esbuild 单文件构建产物
-js/td-map.js          # 3D 地图系统：8 关地形、单/双路径、塔位
+js/td-map.js          # 3D 地图系统：8 关地形、单/双路径、基地水晶、全图可建造
 js/td-towers.js       # 防御塔系统：4种塔×3级、蓄力/弹道/穿透/溅射/灼烧/冰冻
 js/td-monsters.js     # 怪物系统：16种怪物、状态效果、BOSS 技能循环
-js/td-heroes.js       # 英雄系统：2英雄、全图寻路、自动普攻、主动技能、局外等级
+js/td-heroes.js       # 英雄系统：2英雄、米哈游风建模、全图寻路、自动普攻、主动技能、局外等级
 js/td-waves.js        # 波次系统：8 关 20~28 波配置、双路径奇偶分流、BOSS 波
 js/td-audio.js        # Web Audio 音频：程序化 SFX、章节自适应音乐、音量设置
-js/td-tutorial.js     # 新手引导：3001 首次进入的 5 步状态机
+js/td-style.js        # 米哈游风风格系统：toon 渐变材质、全局配色
 js/td-main.js         # 主游戏引擎：准备阶段、暂停、道具、结算奖励、相机控制
 tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file）
 ```
@@ -37,8 +37,8 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 
 ### 地图与关卡（td-map.js）
 - 8 个关卡、3 个章节、单/双路径，双路径关卡奇数波 A 路、偶数波 B 路
-- 塔位自动生成在道路正交相邻的草地格，间距不小于 2 格
-- 主题配色、树木、岩石装饰按章节切换
+- 全图自由建造：除道路、基地水晶、树木、岩石外均可放置防御塔
+- 基地为发光水晶，米哈游风 toon 材质、主题配色与树木岩石装饰
 
 ### 防御塔（td-towers.js）
 - 箭塔：单体快速攻击、Lv2 穿透 1 目标、Lv3 多重射击 2 目标
@@ -46,6 +46,7 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 - 炮塔：AOE 全额伤害、Lv2 破甲 30%、Lv3 灼烧 8 点/秒
 - 冰霜塔：Lv1/Lv2 减速、Lv2 10% 冻结、Lv3 每 4 秒范围冰冻
 - 攻击间隔 = 1/攻速 + 蓄力时间；BOSS 可眩晕防御塔或降低其攻速
+- 点击防御塔/建造时显示攻击范围圈，选择塔型时鼠标悬停显示可建与射程预览
 
 ### 怪物与 BOSS（td-monsters.js）
 - 16 种怪物按章节血量缩放，飞行单位仅可被箭塔/魔法塔/英雄技能攻击
@@ -56,12 +57,14 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 - 王国游侠（穿透箭）与宫廷法师（火焰雨，完成 3003 解锁）
 - 全图点击移动，网格 BFS 自动绕开防御塔；遇怪自动普攻
 - 每局结算获得英雄经验，每 100 经验升 1 级，提升攻击与移速
+- 全局受击/击杀/开火特效与米哈游风 UI 风格统一
 
 ### 流程与 UI（td-main.js / index.html）
 - 主菜单 → 章节/关卡选择 → 准备阶段（建塔、用道具）→ 波次推进
 - 下一波/提前开波、1x/2x 倍速、暂停设置（总音量/音乐/音效）
 - 局内道具：炸弹、急救包、金币袋、寒冰符、援军图腾
 - 结算发放金币与英雄经验：首通、星级、无伤加成
+- 数值平衡：怪物血量下调约 10%，击杀奖励提升约 25%，塔造价保持 PRD 配置
 
 ## 游戏操作
 
@@ -70,8 +73,8 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 |------|------|
 | 鼠标拖拽 | 旋转视角 |
 | 滚轮 | 缩放 |
-| 点击塔位 | 建造塔 |
-| 点击已建塔 | 查看/升级/出售 |
+| 点击空地 | 建造塔（全图可建） |
+| 点击已建塔 | 查看射程/升级/出售 |
 | 点击地面 | 移动英雄 |
 | 点击英雄头像 | 释放英雄技能 |
 | 下一波/空格 | 提前开波 |
@@ -83,8 +86,8 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 |------|------|
 | 单指滑动 | 旋转视角 |
 | 双指捏合 | 缩放 |
-| 点击塔位 | 建造塔 |
-| 点击已建塔 | 查看/升级/出售 |
+| 点击空地 | 建造塔 |
+| 点击已建塔 | 查看射程/升级/出售 |
 
 ## 性能优化
 
@@ -98,7 +101,7 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 
 - `GRID_SIZE`: 40（原棋盘概念，实际关卡 28×20 / 30×20）
 - `PATH_WIDTH`: 3 → 实际道路按 1 单元格车道实现
-- `TOWER_SPOT_DISTANCE`: 2（塔位最小间距）
+- 建造限制：仅道路、基地水晶、树木、岩石占用格不可建造
 - `START_GOLD`: 200（3001 初始金币）
 - `BASE_HP`: 20（3001 基地生命值）
 - `WAVE_INTERVAL`: 5（波间间隔秒数）
