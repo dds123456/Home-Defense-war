@@ -2,7 +2,7 @@
  * 防御塔系统 - 4种塔×3级
  */
 import * as THREE from 'three';
-import { toonMaterial } from './td-style.js';
+import { toonMaterial, addToonOutlines } from './td-style.js';
 
 // 塔配置
 const TOWER_DEFS = {
@@ -226,6 +226,7 @@ export class TowerManager {
 
     group.position.copy(pos);
     group.userData = { towerType: type, towerLevel: level };
+    addToonOutlines(group, 2.4);
     return group;
   }
 
@@ -355,19 +356,35 @@ export class TowerManager {
   }
 
   createProjectile(from, target, type, damage, aoe, lvl, def) {
-    const geo = new THREE.SphereGeometry(0.1, 6, 4);
-    let color = '#ffff00';
-    switch (type) {
-      case 'arrow': color = '#f1c40f'; break;
-      case 'magic': color = '#9b59b6'; break;
-      case 'cannon': color = '#e74c3c'; break;
-      case 'ice': color = '#3498db'; break;
+    let mesh = null;
+    if (type === 'ice') {
+      if (this.game && this.game.createInstantCastEffect) {
+        this.game.createInstantCastEffect(target.mesh.position.clone().setY(0.5), '#6ee7ff');
+      }
+    } else {
+      let geo;
+      let color = '#ffff00';
+      if (type === 'arrow') {
+        geo = new THREE.ConeGeometry(0.06, 0.34, 6);
+        color = '#f1c40f';
+      } else if (type === 'magic') {
+        geo = new THREE.OctahedronGeometry(0.11, 0);
+        color = '#9b59b6';
+      } else {
+        geo = new THREE.SphereGeometry(0.14, 8, 6);
+        color = '#e74c3c';
+      }
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        transparent: type === 'magic',
+        opacity: type === 'magic' ? 0.95 : 1,
+        blending: type === 'magic' ? THREE.AdditiveBlending : THREE.NormalBlending
+      });
+      mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(from);
+      mesh.position.y += 0.5;
+      this.projectileGroup.add(mesh);
     }
-    const mat = new THREE.MeshBasicMaterial({ color });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(from);
-    mesh.position.y += 0.5;
-    this.projectileGroup.add(mesh);
 
     this.projectiles.push({
       mesh, from: from.clone(), target, damage, aoe, type,
@@ -399,13 +416,13 @@ export class TowerManager {
 
       if (p.instant) {
         this.dealDamage(p);
-        this.projectileGroup.remove(p.mesh);
+        if (p.mesh) this.projectileGroup.remove(p.mesh);
         this.projectiles.splice(i, 1);
         continue;
       }
 
       if (!p.target || p.target.dead) {
-        this.projectileGroup.remove(p.mesh);
+        if (p.mesh) this.projectileGroup.remove(p.mesh);
         this.projectiles.splice(i, 1);
         continue;
       }
@@ -425,15 +442,18 @@ export class TowerManager {
             continue;
           }
         }
-        this.projectileGroup.remove(p.mesh);
+        if (p.mesh) this.projectileGroup.remove(p.mesh);
         this.projectiles.splice(i, 1);
       } else {
         const dir = targetPos.clone().sub(p.mesh.position).normalize();
+        if (p.type === 'arrow') {
+          p.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        }
         const moveSpeed = p.speed * dt;
         if (p.type === 'cannon') {
           p.progress += moveSpeed / Math.max(0.01, p.startPos.distanceTo(targetPos));
           p.mesh.position.lerpVectors(p.startPos, targetPos, Math.min(p.progress, 1));
-          p.mesh.position.y += Math.sin(p.progress * Math.PI) * 2;
+          p.mesh.position.y += Math.sin(p.progress * Math.PI) * 1.0;
         } else {
           p.mesh.position.add(dir.multiplyScalar(moveSpeed));
         }

@@ -2,7 +2,7 @@
  * 英雄系统 - 2英雄 + 主动技能
  */
 import * as THREE from 'three';
-import { toonMaterial } from './td-style.js';
+import { toonMaterial, addToonOutlines } from './td-style.js';
 import { createCanvasSprite, updateCanvasSprite, setCanvasSpriteMode } from './td-anim.js';
 import { getHeroSheet } from './td-spritegen.js';
 
@@ -184,9 +184,10 @@ export class HeroManager {
     const runSheet = getHeroSheet(index, 'run');
     const hitSheet = getHeroSheet(index, 'hit');
     const spriteAnim = createCanvasSprite(runSheet, hitSheet, 1.05);
-    spriteAnim.sprite.position.y = 0.85;
+    spriteAnim.sprite.position.y = 0.5 * spriteAnim.sprite.scale.y;
     group.add(spriteAnim.sprite);
     bodyGroup.visible = false;
+    addToonOutlines(group, 2.6);
     this.heroGroup.add(group);
 
     const hero = {

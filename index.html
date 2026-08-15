@@ -158,8 +158,10 @@
       <button id="btn-start-menu" class="menu-btn primary">⚔️ 开始游戏</button>
       <button id="btn-heroes-menu" class="menu-btn">🧝 英雄培养</button>
       <button id="btn-shop-menu" class="menu-btn">🛒 商店</button>
+      <button id="btn-codex-menu" class="menu-btn">📖 图鉴</button>
       <p class="menu-tip">拖拽旋转视角 · 滚轮缩放 · 点击空地建造防御塔 · 点击英雄选中后点击地图移动 · 空格提前开波</p>
-      <p class="menu-version">V1.7 米哈游风正式版</p>
+      <p class="menu-version">V2.0 米哈游风画面升级版</p>
+      <img class="menu-art" src="textures/portraits/hero_ranger.png" alt="王国游侠">
     </div>
 
     <!-- 关卡选择 -->
@@ -184,6 +186,14 @@
       <h2 class="select-title">商店 · 局内技能</h2>
       <div id="shop-coins" class="meta-line">局外金币：0</div>
       <div id="shop-list" class="shop-list"></div>
+    </div>
+
+    <!-- 图鉴 -->
+    <div id="codex-panel" class="fullscreen-overlay" style="display:none">
+      <button id="close-codex" class="back-btn">← 返回</button>
+      <h2 class="select-title">图鉴</h2>
+      <div id="codex-tabs" class="chapter-tabs"></div>
+      <div id="codex-grid" class="codex-grid"></div>
     </div>
 
     <div id="fatal-overlay" style="display:none"></div>

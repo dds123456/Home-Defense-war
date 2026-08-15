@@ -3,13 +3,17 @@
  * 全图可建造：仅道路、基地、树木、岩石占用格子不可放置
  */
 import * as THREE from 'three';
-import { toonMaterial, CHAPTER_PALETTES, applyTextureMap } from './td-style.js';
+import { toonMaterial, CHAPTER_PALETTES, applyTextureMap, addToonOutlines } from './td-style.js';
+import { buildWater } from './td-water.js';
+import { buildMountain, createAmbient, disposeAmbient, updateAmbient } from './td-world.js';
 
 const MAP_TEXTURES = {
   1: { grass: 'textures/map/grass_tile.png', path: 'textures/map/road_stone_slab.png', dirt: 'textures/map/minimal_cobble.png' },
   2: { grass: 'textures/map/swamp_bubbles.png', path: 'textures/map/scene_crystal_snow_floor.png', dirt: 'textures/map/minimal_cobble.png' },
   3: { grass: 'textures/map/lava_tile.png', path: 'textures/map/lava_crack_stone.png', dirt: 'textures/map/minimal_lava.png' }
 };
+
+const GROUND_Y = 0.2;
 
 function expandPath(corners) {
   const cells = [];
@@ -127,6 +131,7 @@ export class TdMap {
     this.chapter = 1;
     this.levelIndex = 0;
     this.materials = {};
+    this.ambient = null;
   }
 
   reset(levelIndex) {
@@ -135,6 +140,8 @@ export class TdMap {
   }
 
   buildLevel(levelIndex) {
+    if (this.ambient) disposeAmbient(this.ambient);
+    this.ambient = null;
     while (this.mapGroup.children.length > 0) {
       this.mapGroup.remove(this.mapGroup.children[0]);
     }
@@ -153,12 +160,18 @@ export class TdMap {
       grass: palette.grass,
       path: palette.path,
       dirt: palette.dirt,
-      water: '#5fb8e8'
+      water: '#5fb8e8',
+      accent: palette.accent,
+      waterDeep: palette.waterDeep,
+      waterShallow: palette.waterShallow,
+      waterAccent: palette.waterAccent,
+      waterFoam: palette.waterFoam
     };
+    this.ambient = createAmbient(this.scene, this.theme, this.gridW, this.gridH);
 
     this.paths = config.paths.map(corners => {
       const cells = expandPath(corners);
-      const points = cells.map(c => new THREE.Vector3(c.x + 0.5, 0.05, c.z + 0.5));
+      const points = cells.map(c => new THREE.Vector3(c.x + 0.5, GROUND_Y, c.z + 0.5));
       return { corners, cells, points, length: pathLengthOf(cells) };
     });
 
@@ -196,7 +209,7 @@ export class TdMap {
   }
 
   getHeroSpawn() {
-    return new THREE.Vector3(this.heroSpawn.x + 0.5, 0.2, this.heroSpawn.z + 0.5);
+    return new THREE.Vector3(this.heroSpawn.x + 0.5, GROUND_Y, this.heroSpawn.z + 0.5);
   }
 
   getPathWorldPoints(entry = 0) {
@@ -214,7 +227,7 @@ export class TdMap {
   }
 
   getCellCenterWorld(x, z) {
-    return new THREE.Vector3(x + 0.5, 0.25, z + 0.5);
+    return new THREE.Vector3(x + 0.5, GROUND_Y, z + 0.5);
   }
 
   isPlaceableCell(x, z) {
@@ -240,9 +253,13 @@ export class TdMap {
     const baseMat = toonMaterial('#6b5b52', { roughness: 0.95 });
     applyTextureMap(baseMat, tex.dirt);
     const baseMesh = new THREE.Mesh(baseGeo, baseMat);
-    baseMesh.position.set(this.gridW / 2, -0.5, this.gridH / 2);
+    baseMesh.position.set(this.gridW / 2, -0.25, this.gridH / 2);
     baseMesh.receiveShadow = true;
     this.mapGroup.add(baseMesh);
+
+    this.mapGroup.add(buildMountain(this.theme, this.gridW, this.gridH));
+    this.water = buildWater(this.theme, this.gridW, this.gridH);
+    this.mapGroup.add(this.water);
 
     const cellGeo = new THREE.BoxGeometry(0.96, 0.2, 0.96);
     for (let x = 0; x < this.gridW; x++) {
@@ -262,7 +279,7 @@ export class TdMap {
     const groundGeo = new THREE.PlaneGeometry(this.gridW, this.gridH);
     groundGeo.rotateX(-Math.PI / 2);
     this.groundMesh = new THREE.Mesh(groundGeo, new THREE.MeshBasicMaterial({ visible: false }));
-    this.groundMesh.position.set(this.gridW / 2, 0.2, this.gridH / 2);
+    this.groundMesh.position.set(this.gridW / 2, GROUND_Y, this.gridH / 2);
     this.mapGroup.add(this.groundMesh);
   }
 
@@ -276,10 +293,10 @@ export class TdMap {
     applyTextureMap(pathPatchMat, tex.dirt);
     for (const p of this.paths) {
       for (const c of p.cells) {
-        const geo = new THREE.BoxGeometry(0.88, 0.21, 0.88);
+        const geo = new THREE.BoxGeometry(0.88, 0.2, 0.88);
         const mat = (c.x + c.z) % 4 === 0 ? pathPatchMat : pathMat;
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(c.x + 0.5, 0.2, c.z + 0.5);
+        mesh.position.set(c.x + 0.5, GROUND_Y - 0.1, c.z + 0.5);
         mesh.receiveShadow = true;
         this.mapGroup.add(mesh);
       }
@@ -316,7 +333,7 @@ export class TdMap {
     group.add(light);
 
     const baseX = this.basePos.x, baseZ = this.basePos.z;
-    group.position.set(baseX + 0.5, 0, baseZ + 0.5);
+    group.position.set(baseX + 0.5, GROUND_Y, baseZ + 0.5);
     this.mapGroup.add(group);
     this.baseMesh = group;
     this.baseMesh.userData.crystal = crystal;
@@ -327,6 +344,7 @@ export class TdMap {
         this.blockedCells.add(this.cellKey(baseX + dx, baseZ + dz));
       }
     }
+    addToonOutlines(group, 3.2);
   }
 
   buildDecorations() {
@@ -370,17 +388,18 @@ export class TdMap {
     leaves2.position.y = 1.7;
     leaves2.castShadow = true;
     group.add(leaves2);
-    group.position.set(x, 0.2, z);
+    group.position.set(x, GROUND_Y, z);
     this.mapGroup.add(group);
   }
 
   buildRock(x, z) {
     const size = 0.22 + Math.random() * 0.28;
     const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 1), toonMaterial('#b8b4c8'));
-    mesh.position.set(x, size * 0.5, z);
+    mesh.position.set(x, GROUND_Y + size * 0.5, z);
     mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    addToonOutlines(mesh, 2.0);
     this.mapGroup.add(mesh);
   }
 

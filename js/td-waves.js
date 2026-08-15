@@ -8,24 +8,81 @@ import { MONSTER_DEFS } from './td-monsters.js';
 // 每关波次总数（PRD 3.4.1）
 const WAVE_COUNT = [20, 22, 25, 21, 23, 26, 24, 28];
 
-// 关底 BOSS 分配（PRD 3.4.1 / 3.5.5）
-const BOSS_MAP = { 0: 'orcCaptain', 2: 'orcCaptain', 5: 'skeletonKing', 7: 'hellGolem' };
-
-// 章节怪物池
-const CHAPTER_POOLS = {
-  1: { basic: ['goblin', 'orc'], flying: ['gargoyle'], elite: ['wolfRider', 'shadow', 'troll'], fast: ['fastGoblin'] },
-  2: { basic: ['skeleton', 'zombie'], flying: ['ghost'], elite: ['lich', 'stoneGolem'] },
-  3: { basic: ['demonImp', 'hellHound'], flying: ['wyvern'], elite: ['heavyDemon'] }
+// 每关至少 5 种怪物的独立池 + 关底 BOSS
+const LEVEL_POOLS = {
+  0: { types: ['goblin', 'orc', 'fastGoblin', 'gargoyle', 'wolfRider', 'shadow'], boss: 'orcCaptain', elite: ['wolfRider', 'shadow'] },
+  1: { types: ['goblin', 'orc', 'fastGoblin', 'gargoyle', 'wolfRider', 'troll'], elite: ['wolfRider', 'troll'] },
+  2: { types: ['goblin', 'orc', 'fastGoblin', 'gargoyle', 'shadow', 'troll'], boss: 'orcCaptain', elite: ['shadow', 'troll'] },
+  3: { types: ['skeleton', 'zombie', 'ghost', 'lich', 'stoneGolem'], elite: ['lich', 'stoneGolem'] },
+  4: { types: ['skeleton', 'zombie', 'ghost', 'lich', 'stoneGolem', 'shadow'], elite: ['lich', 'stoneGolem', 'shadow'] },
+  5: { types: ['skeleton', 'zombie', 'ghost', 'lich', 'stoneGolem', 'shadow'], boss: 'skeletonKing', elite: ['lich', 'stoneGolem', 'shadow'] },
+  6: { types: ['demonImp', 'hellHound', 'wyvern', 'heavyDemon', 'ghost', 'gargoyle'], elite: ['heavyDemon', 'ghost', 'gargoyle'] },
+  7: { types: ['demonImp', 'hellHound', 'wyvern', 'heavyDemon', 'ghost', 'stoneGolem'], boss: 'hellGolem', elite: ['heavyDemon', 'ghost', 'stoneGolem'] }
 };
 
-function buildDesc(w, enemies, pool, bossType, N) {
+// 每关难度系数：塔的强化速度随关卡提高，波次价值曲线同步抬升
+const DIFF = [1.0, 1.1, 1.2, 1.22, 1.34, 1.45, 1.5, 1.65];
+
+const ELITE_TYPES = new Set(['wolfRider', 'shadow', 'troll', 'lich', 'stoneGolem', 'heavyDemon']);
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle(arr, rng) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function targetValue(levelIndex, w, N) {
+  const waveGrowth = 7 + levelIndex * 1.05;
+  const lengthFactor = 0.8 + 0.2 * (N / 20);
+  return Math.round(DIFF[levelIndex] * (70 + w * waveGrowth) * lengthFactor);
+}
+
+function allocateCounts(types, target, rng) {
+  const rewards = types.map(t => MONSTER_DEFS[t].reward);
+  const shares = types.map((t, i) => i === 0 ? 0.4 : i === 1 ? 0.26 : (0.34 / (types.length - 2)));
+  const counts = types.map((t, i) => Math.max(1, Math.round(target * shares[i] / rewards[i])));
+  let total = counts.reduce((s, c, i) => s + c * rewards[i], 0);
+  let guard = 0;
+  while (total < target && guard < 16) {
+    const idx = counts.reduce((best, c, i) => rewards[i] < rewards[best] ? i : best, 0);
+    counts[idx]++;
+    total += rewards[idx];
+    guard++;
+  }
+  guard = 0;
+  while (total > target && guard < 20) {
+    const idx = counts.reduce((best, c, i) => rewards[i] > rewards[best] ? i : best, 0);
+    if (counts[idx] <= 1) break;
+    counts[idx]--;
+    total -= rewards[idx];
+    guard++;
+  }
+  return counts;
+}
+
+function buildDesc(w, enemies, bossType, N) {
   if (bossType && w >= N) {
     const boss = MONSTER_DEFS[bossType];
     return `BOSS: ${boss.name} 降临！${boss.bossSkill ? `预警「${boss.bossSkill.name}」` : ''}`;
   }
   const head = enemies[0].type;
-  const hasFlying = enemies.some(e => pool.flying.includes(e.type));
-  const hasElite = enemies.some(e => pool.elite.includes(e.type));
+  const hasFlying = enemies.some(e => MONSTER_DEFS[e.type].flying);
+  const hasElite = enemies.some(e => ELITE_TYPES.has(e.type));
+  if (hasFlying && hasElite) return '混合精锐编队：飞行 + 精英，注意对空与集火！';
   if (hasFlying) return '飞行编队来袭！请部署对空火力（魔法塔/英雄）';
   if (hasElite) return `精英${MONSTER_DEFS[head].name}突进，注意高血量与冲锋！`;
   if (enemies.length > 1) return '杂兵混编潮，合理分配火力！';
@@ -34,54 +91,79 @@ function buildDesc(w, enemies, pool, bossType, N) {
 
 function buildWaves(levelIndex) {
   const cfg = LEVEL_CONFIGS[levelIndex];
-  const ch = cfg.chapter;
-  const pool = CHAPTER_POOLS[ch];
+  const profile = LEVEL_POOLS[levelIndex] || LEVEL_POOLS[0];
   const N = WAVE_COUNT[levelIndex];
-  const bossType = BOSS_MAP[levelIndex];
+  const bossType = profile.boss;
   const waves = [];
+  const seenSignatures = new Set();
+  let prevTarget = 0;
+  let prevValue = 0;
 
   for (let w = 1; w <= N; w++) {
+    const seed = levelIndex * 7919 + w * 104729;
+    const rng = mulberry32(seed);
+    let target = targetValue(levelIndex, w, N);
+    target = Math.max(target, Math.round(prevTarget * 1.06));
+    prevTarget = target;
+    const baseInterval = Math.max(0.45, 1.18 - w * 0.018);
     const enemies = [];
-    const interval = Math.max(0.5, 1.3 - w * 0.025);
-    const baseCount = Math.round(5 + w * 0.9);
+    let isBoss = false;
 
-    if (w === 1) {
-      enemies.push({ type: pool.basic[0], count: 5, interval: 1.2, delay: 2 });
-    } else if (w <= 3) {
-      enemies.push({ type: pool.basic[0], count: baseCount, interval, delay: 2 });
-    } else if (w <= 6) {
-      enemies.push({ type: pool.basic[0], count: Math.round(baseCount * 0.6), interval, delay: 2 });
-      enemies.push({ type: pool.basic[1], count: Math.round(baseCount * 0.5), interval: interval + 0.2, delay: 4 });
-    } else if (w === 8) {
-      // 飞行波
-      enemies.push({ type: pool.flying[0], count: 3 + Math.floor(w / 6), interval: 1.8, delay: 2 });
-      enemies.push({ type: pool.basic[0], count: Math.round(baseCount * 0.5), interval, delay: 5 });
-    } else if (w === 10) {
-      // 精英波
-      enemies.push({ type: pool.elite[0], count: 2 + Math.floor(w / 12), interval: 2.0, delay: 2 });
-      enemies.push({ type: pool.basic[1], count: Math.round(baseCount * 0.6), interval, delay: 5 });
+    if (bossType && w >= N) {
+      isBoss = true;
+      enemies.push({ type: bossType, count: 1, interval: 0, delay: 3, isBoss: true });
+      const escorts = shuffle(profile.types, rng).slice(0, 3);
+      const counts = allocateCounts(escorts, Math.round(target * 0.9), rng);
+      escorts.forEach((type, i) => {
+        enemies.push({ type, count: counts[i], interval: baseInterval + i * 0.16, delay: 6 + i * 3 });
+      });
+    } else if (w === 1) {
+      const types = profile.types.slice(0, 3);
+      const counts = allocateCounts(types, target, rng);
+      types.forEach((type, i) => {
+        enemies.push({ type, count: counts[i], interval: baseInterval + i * 0.22, delay: 2 + i * 2 });
+      });
     } else if (w >= N) {
-      // 最后一波：BOSS 或精英高压收尾
-      if (bossType) {
-        enemies.push({ type: bossType, count: 1, interval: 0, delay: 3, isBoss: true });
-        enemies.push({ type: pool.basic[0], count: Math.round(baseCount * 0.6), interval, delay: 6 });
-      } else {
-        const eliteType = pool.elite[Math.min(1, pool.elite.length - 1)];
-        enemies.push({ type: eliteType, count: 3 + Math.floor(w / 8), interval: 1.8, delay: 2 });
-        enemies.push({ type: pool.basic[0], count: baseCount, interval, delay: 5 });
-        if (pool.flying[0]) enemies.push({ type: pool.flying[0], count: 3, interval: 1.6, delay: 8 });
-      }
+      const types = [...profile.types.slice(0, 2), ...shuffle(profile.types.slice(2), rng).slice(0, 3)];
+      const counts = allocateCounts(types, Math.round(target * 1.25), rng);
+      types.forEach((type, i) => {
+        enemies.push({ type, count: counts[i], interval: baseInterval + i * 0.13, delay: 2 + i * 2 });
+      });
     } else {
-      // 混合波
-      enemies.push({ type: pool.basic[0], count: Math.round(baseCount * 0.6), interval, delay: 2 });
-      enemies.push({ type: pool.basic[1], count: Math.round(baseCount * 0.4), interval: interval + 0.2, delay: 4 });
-      if (w % 4 === 0 && pool.flying[0]) enemies.push({ type: pool.flying[0], count: 2 + Math.floor(w / 10), interval: 1.8, delay: 6 });
-      if (w % 5 === 0 && pool.elite[0]) enemies.push({ type: pool.elite[0], count: 1 + Math.floor(w / 15), interval: 2.0, delay: 7 });
+      const extraCount = 1 + ((w * 7 + levelIndex) % 3);
+      const types = [
+        profile.types[0],
+        profile.types[1],
+        ...shuffle(profile.types.slice(2), rng).slice(0, extraCount)
+      ];
+      const counts = allocateCounts(types, target, rng);
+      types.forEach((type, i) => {
+        const delayBase = i === 0 ? 2 : 3.2 + i * 1.4;
+        enemies.push({ type, count: counts[i], interval: baseInterval + i * 0.14, delay: delayBase });
+      });
     }
 
-    const isBoss = !!(bossType && w >= N);
-    const desc = buildDesc(w, enemies, pool, bossType, N);
-    waves.push({ desc, enemies, isBoss });
+    let value = enemies.reduce((s, e) => s + e.count * (MONSTER_DEFS[e.type].reward || 0), 0);
+    let valueGuard = 0;
+    while (value < Math.round(prevValue * 1.04) && valueGuard < 24) {
+      const cheapest = enemies.reduce((best, e, i) => MONSTER_DEFS[e.type].reward < MONSTER_DEFS[enemies[best].type].reward ? i : best, 0);
+      enemies[cheapest].count++;
+      value += MONSTER_DEFS[enemies[cheapest].type].reward;
+      valueGuard++;
+    }
+    prevValue = value;
+
+    let sig = enemies.map(e => `${e.type}x${e.count}`).join('|');
+    let guard = 0;
+    while (seenSignatures.has(sig) && guard < 12) {
+      enemies[0].count++;
+      sig = enemies.map(e => `${e.type}x${e.count}`).join('|');
+      guard++;
+    }
+    seenSignatures.add(sig);
+    value = enemies.reduce((s, e) => s + e.count * (MONSTER_DEFS[e.type].reward || 0), 0);
+    const desc = buildDesc(w, enemies, bossType, N);
+    waves.push({ desc, enemies, isBoss, value, target });
   }
   return waves;
 }
@@ -128,7 +210,7 @@ export class WaveManager {
 
   hpScale(waveNum) {
     const chScale = { 1: 1.0, 2: 1.25, 3: 1.65 }[this.chapter] || 1.0;
-    const waveScale = 1 + 0.08 * Math.floor((waveNum - 1) / 5);
+    const waveScale = 1 + 0.10 * Math.floor((waveNum - 1) / 4) + 0.004 * (waveNum - 1);
     return chScale * waveScale;
   }
 

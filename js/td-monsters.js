@@ -3,7 +3,7 @@
  * 支持单/双路径(entry 索引) 与按波次血量缩放
  */
 import * as THREE from 'three';
-import { toonMaterial } from './td-style.js';
+import { toonMaterial, addToonOutlines } from './td-style.js';
 import {
   createMonsterSprite,
   setMonsterSpriteMode,
@@ -93,7 +93,7 @@ export class MonsterManager {
       id: Date.now() + Math.random(),
       type: typeKey, def, mesh,
       hp: maxHp, maxHp,
-      speed: def.speed,
+      speed: def.speed * 0.8,
       pathProgress: 0,
       pathPoints: path.points,
       pathLength: path.length,
@@ -123,12 +123,16 @@ export class MonsterManager {
       const anim = createMonsterSprite(targetH, () => {
         if (mesh.userData.torsoGroup) mesh.userData.torsoGroup.visible = true;
       });
+      const feetFrac = 0.842;
+      anim.sprite.position.y = (feetFrac - 0.5) * anim.sprite.scale.y;
       mesh.add(anim.sprite);
       monster.spriteAnim = anim;
     } else if (usesGeneratedSprite) {
       const runSheet = getMonsterSheet(def, 'run');
       const hitSheet = getMonsterSheet(def, 'hit');
       const anim = createCanvasSprite(runSheet, hitSheet, targetH);
+      const feetFrac = 1;
+      anim.sprite.position.y = (feetFrac - 0.5) * anim.sprite.scale.y;
       mesh.add(anim.sprite);
       monster.spriteAnim = anim;
     }
@@ -362,6 +366,7 @@ export class MonsterManager {
     }
 
     group.userData.limbs = limbs;
+    addToonOutlines(group, def.isBoss ? 3.0 : (def.size[0] >= 0.4 ? 2.6 : 2.2));
     return group;
   }
 

@@ -6,11 +6,15 @@
 import * as THREE from 'three';
 import { TdMap, LEVEL_CONFIGS } from './td-map.js';
 import { TowerManager } from './td-towers.js';
-import { MonsterManager } from './td-monsters.js';
+import { MonsterManager, MONSTER_DEFS } from './td-monsters.js';
 import { HeroManager } from './td-heroes.js';
 import { WaveManager } from './td-waves.js';
 import { AudioManager } from './td-audio.js';
-import { MIHOYO } from './td-style.js';
+import { MIHOYO, CHAPTER_PALETTES, updateOutlineUniforms } from './td-style.js';
+import { buildSky, updateSky } from './td-sky.js';
+import { updateWater } from './td-water.js';
+import { updateAmbient } from './td-world.js';
+import { createWeather, updateWeather, resetWeather } from './td-weather.js';
 
 const PROGRESS_KEY = 'hdw_progress_v1';
 const WAVE_COUNTS = [20, 22, 25, 21, 23, 26, 24, 28];
@@ -31,6 +35,33 @@ const SKILL_DEFS = {
   goldRain: { name: '金币雨', icon: '🪙', desc: '立即获得 200 金币', price: 40, target: false }
 };
 
+const HERO_META = [
+  { id: 'ranger', name: '王国游侠', icon: '🧝', portrait: 'hero_ranger.png', unlocked: true, skill: '穿透箭 · 对飞行 +50%' },
+  { id: 'mage', name: '宫廷法师', icon: '🧙', portrait: 'hero_mage.png', unlocked: false, skill: '火焰雨 · 灼烧 + 减速' }
+];
+
+const MONSTER_PORTRAITS = {
+  goblin: 'monster_goblin.png',
+  fastGoblin: 'monster_fastGoblin.png',
+  orc: 'monster_orc.png',
+  wolfRider: 'monster_wolfRider.png',
+  shadow: 'monster_shadow.png',
+  gargoyle: 'monster_gargoyle.png',
+  troll: 'monster_troll.png',
+  orcCaptain: 'monster_orcCaptain.png',
+  skeleton: 'monster_skeleton.png',
+  zombie: 'monster_zombie.png',
+  lich: 'monster_lich.png',
+  stoneGolem: 'monster_stoneGolem.png',
+  ghost: 'monster_ghost.png',
+  skeletonKing: 'monster_skeletonKing.png',
+  demonImp: 'monster_demonImp.png',
+  hellHound: 'monster_hellHound.png',
+  heavyDemon: 'monster_heavyDemon.png',
+  wyvern: 'monster_wyvern.png',
+  hellGolem: 'monster_hellGolem.png'
+};
+
 function loadProgress() {
   const base = {
     unlocked: 0,
@@ -38,7 +69,7 @@ function loadProgress() {
     heroExp: {},
     heroLevels: { ranger: 1, mage: 1 },
     coins: 0,
-    stamina: { value: 20, max: 20, lastRegen: Date.now() },
+    stamina: { value: 1000, max: 1000, lastRegen: Date.now() },
     shopSkills: { arrowRain: 0, fireball: 0, healWave: 0, timeWarp: 0, goldRain: 0 }
   };
   try {
@@ -52,6 +83,11 @@ function loadProgress() {
         base.heroLevels = Object.assign(base.heroLevels, p.heroLevels || {});
         base.coins = p.coins || 0;
         base.stamina = Object.assign(base.stamina, p.stamina || {});
+        if (base.stamina.max < 1000) {
+          base.stamina.max = 1000;
+          base.stamina.value = 1000;
+        }
+        base.stamina.value = Math.min(base.stamina.value, base.stamina.max);
         base.shopSkills = Object.assign(base.shopSkills, p.shopSkills || {});
       }
     }
@@ -91,7 +127,7 @@ class Game {
     this.selectedItem = null;
     this.skills = { arrowRain: 0, fireball: 0, healWave: 0, timeWarp: 0, goldRain: 0 };
     this.selectedSkill = null;
-    this.staminaCost = 5;
+    this.staminaCost = 10;
     this.bossWarnings = [];
     this._msgTimeout = null;
     this._suppressClick = false;
@@ -101,6 +137,8 @@ class Game {
     this.buildPreview = null;
 
     this.initThree();
+    this.weather = createWeather(this.scene);
+    this.initEdgePass();
     this.initCamera();
     this.initManagers();
     this.initLighting();
@@ -108,6 +146,7 @@ class Game {
     this.initUI();
 
     this.map.reset(0);
+    this.updateSkyForChapter();
     this.showMainMenu();
     this.animate();
   }
@@ -122,18 +161,29 @@ class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.32;
     document.getElementById('game-container').prepend(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(MIHOYO.sky);
     this.scene.fog = new THREE.Fog(MIHOYO.fog, 30, 72);
+    this.sky = null;
+    this.edgeRT = null;
+    this.edgeScene = null;
+    this.edgeCamera = null;
+    this.edgeQuad = null;
+    this.normalRT = null;
+    this.normalMat = null;
 
-    this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.5, 100);
+    this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.5, 400);
     this.camTarget = new THREE.Vector3(14, 0, 10);
     this.camYaw = 0.7;
     this.camPitch = 0.55;
     this.camRadius = 28;
+    this.cameraIntro = null;
+    this.worldTime = 0;
+    this.worldGroup = new THREE.Group();
+    this.scene.add(this.worldGroup);
 
     this.clock = new THREE.Clock();
     this.raycaster = new THREE.Raycaster();
@@ -143,6 +193,7 @@ class Game {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      updateOutlineUniforms(50, window.innerHeight);
     });
   }
 
@@ -175,6 +226,7 @@ class Game {
   }
 
   onPointerMove(e) {
+    if (this.cameraIntro) return;
     if (e.pointerType === 'touch' && this.touchIds.size === 2) {
       const touches = [...this.touchIds];
       if (touches.includes(e.pointerId) && this._touchPos) {
@@ -221,17 +273,34 @@ class Game {
 
   onWheel(e) {
     e.preventDefault();
+    if (this.cameraIntro) return;
     this.camRadius = Math.max(14, Math.min(55, this.camRadius + e.deltaY * 0.02));
   }
 
   updateCamera() {
+    let pitch = this.camPitch;
+    let radius = this.camRadius;
+    let fov = 50;
+    if (this.cameraIntro) {
+      const t = Math.min(1, this.cameraIntro.elapsed / this.cameraIntro.duration);
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      pitch = this.cameraIntro.startPitch + (this.camPitch - this.cameraIntro.startPitch) * e;
+      radius = this.cameraIntro.startRadius + (this.camRadius - this.cameraIntro.startRadius) * e;
+      fov = this.cameraIntro.startFov + (50 - this.cameraIntro.startFov) * e;
+      if (t >= 1) this.cameraIntro = null;
+    }
     const offset = new THREE.Vector3(
-      this.camRadius * Math.cos(this.camPitch) * Math.sin(this.camYaw),
-      this.camRadius * Math.sin(this.camPitch),
-      this.camRadius * Math.cos(this.camPitch) * Math.cos(this.camYaw)
+      radius * Math.cos(pitch) * Math.sin(this.camYaw),
+      radius * Math.sin(pitch),
+      radius * Math.cos(pitch) * Math.cos(this.camYaw)
     );
     this.camera.position.copy(this.camTarget).add(offset);
     this.camera.lookAt(this.camTarget);
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+      updateOutlineUniforms(fov, window.innerHeight);
+    }
   }
 
   frameLevel() {
@@ -242,20 +311,173 @@ class Game {
     this.camRadius = Math.max(26, this.map.gridW * 1.05);
   }
 
+  startCameraIntro() {
+    this.cameraIntro = {
+      elapsed: 0,
+      duration: 2.6,
+      startRadius: Math.max(62, this.camRadius * 2.7),
+      startPitch: 0.12,
+      startFov: 34
+    };
+  }
+
   initLighting() {
-    const ambient = new THREE.AmbientLight('#e8f4ff', 0.7);
+    const ambient = new THREE.AmbientLight('#e8f4ff', 0.55);
     this.scene.add(ambient);
 
-    const hemi = new THREE.HemisphereLight('#cfefff', '#7fd27f', 0.55);
+    const hemi = new THREE.HemisphereLight('#cfefff', '#7fd27f', 0.45);
     this.scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight('#fff3d6', 1.35);
+    const sun = new THREE.DirectionalLight('#fff3d6', 1.05);
     sun.position.set(20, 30, 10);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
     sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
     this.scene.add(sun);
+  }
+
+  updateSkyForChapter() {
+    if (this.sky) {
+      this.scene.remove(this.sky);
+      this.sky = null;
+    }
+    const theme = this.map.theme || CHAPTER_PALETTES[this.map.chapter] || CHAPTER_PALETTES[1];
+    const center = this.map.getCenter();
+    this.sky = buildSky(theme, center);
+    this.sky.traverse((o) => { o.userData.isSky = true; });
+    this.scene.add(this.sky);
+    const fogColor = theme.fog || MIHOYO.fog;
+    this.scene.background = new THREE.Color(fogColor);
+    if (this.scene.fog) this.scene.fog.color.set(fogColor);
+  }
+
+  initEdgePass() {
+    this.edgeRT = new THREE.WebGLRenderTarget(1, 1, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType
+    });
+    this.edgeRT.texture.colorSpace = THREE.SRGBColorSpace;
+    this.normalRT = new THREE.WebGLRenderTarget(1, 1, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType
+    });
+    this.normalMat = new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vNormal;
+        varying float vDepth;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vDepth = clamp(-mv.z / 100.0, 0.0, 1.0);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vNormal;
+        varying float vDepth;
+        void main() {
+          vec3 n = normalize(vNormal);
+          gl_FragColor = vec4(n * 0.5 + 0.5, vDepth);
+        }
+      `,
+      depthTest: true,
+      depthWrite: true
+    });
+    this.normalMat.toneMapped = false;
+    this.normalMat.fog = false;
+    const quadMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tDiffuse: { value: null },
+        tNormalDepth: { value: null },
+        uTexel: { value: new THREE.Vector2(1, 1) },
+        uNThreshold: { value: 0.30 },
+        uDThreshold: { value: 0.055 },
+        uEdgeAlpha: { value: 0.42 },
+        uInk: { value: new THREE.Color(MIHOYO.ink) }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform sampler2D tNormalDepth;
+        uniform vec2 uTexel;
+        uniform float uNThreshold;
+        uniform float uDThreshold;
+        uniform float uEdgeAlpha;
+        uniform vec3 uInk;
+        varying vec2 vUv;
+        vec3 nTap(vec2 off) {
+          vec3 n = texture2D(tNormalDepth, vUv + off * uTexel).rgb * 2.0 - 1.0;
+          return normalize(n);
+        }
+        float dTap(vec2 off) {
+          return texture2D(tNormalDepth, vUv + off * uTexel).a;
+        }
+        void main() {
+          vec4 col = texture2D(tDiffuse, vUv);
+          vec3 tl = nTap(vec2(-1.0, -1.0)), tc = nTap(vec2(0.0, -1.0)), tr = nTap(vec2(1.0, -1.0));
+          vec3 ml = nTap(vec2(-1.0, 0.0)), mr = nTap(vec2(1.0, 0.0));
+          vec3 bl = nTap(vec2(-1.0, 1.0)), bc = nTap(vec2(0.0, 1.0)), br = nTap(vec2(1.0, 1.0));
+          vec3 gxN = -tl + tr - 2.0 * ml + 2.0 * mr - bl + br;
+          vec3 gyN = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br;
+          float nEdge = length(gxN) + length(gyN);
+          float dC = dTap(vec2(0.0, 0.0));
+          float dEdge = max(
+            max(abs(dC - dTap(vec2(-1.0, 0.0))), abs(dC - dTap(vec2(1.0, 0.0)))),
+            max(abs(dC - dTap(vec2(0.0, -1.0))), abs(dC - dTap(vec2(0.0, 1.0))))
+          );
+          float edge = max(step(uNThreshold, nEdge), step(uDThreshold, dEdge));
+          float mask = edge * uEdgeAlpha;
+          vec3 outColor = mix(col.rgb, uInk, mask);
+          gl_FragColor = linearToOutputTexel(vec4(outColor * 0.84, col.a));
+        }
+      `,
+      depthTest: false,
+      depthWrite: false
+    });
+    quadMat.toneMapped = false;
+    quadMat.fog = false;
+    this.edgeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), quadMat);
+    this.edgeQuad.frustumCulled = false;
+    this.edgeScene = new THREE.Scene();
+    this.edgeScene.add(this.edgeQuad);
+    this.edgeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  }
+
+  renderSceneWithEdges() {
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    if (!this.edgeRT || this.edgeRT.width !== size.x || this.edgeRT.height !== size.y) {
+      this.edgeRT.setSize(size.x, size.y);
+      this.normalRT.setSize(size.x, size.y);
+    }
+    this.renderer.setRenderTarget(this.edgeRT);
+    this.renderer.render(this.scene, this.camera);
+    const saved = [];
+    this.scene.traverse((obj) => {
+      if (!obj.isMesh || obj.userData.isOutline || obj.userData.isSky) return;
+      if (obj.material && obj.material.isSpriteMaterial) return;
+      saved.push({ mesh: obj, mat: obj.material });
+      obj.material = this.normalMat;
+    });
+    this.renderer.setRenderTarget(this.normalRT);
+    this.renderer.render(this.scene, this.camera);
+    for (const entry of saved) entry.mesh.material = entry.mat;
+    this.renderer.setRenderTarget(null);
+    const mat = this.edgeQuad.material;
+    mat.uniforms.tDiffuse.value = this.edgeRT.texture;
+    mat.uniforms.tNormalDepth.value = this.normalRT.texture;
+    mat.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
+    this.renderer.render(this.edgeScene, this.edgeCamera);
   }
 
   initRaycaster() {
@@ -277,6 +499,13 @@ class Game {
     this.monsterManager = new MonsterManager(this.scene, this);
     this.heroManager = new HeroManager(this.scene, this);
     this.waveManager = new WaveManager(this);
+    this.worldGroup.add(
+      this.map.mapGroup,
+      this.towerManager.towerGroup,
+      this.towerManager.projectileGroup,
+      this.monsterManager.monsterGroup,
+      this.heroManager.heroGroup
+    );
   }
 
   initUI() {
@@ -340,6 +569,11 @@ class Game {
       shopList: $('shop-list'),
       shopCoins: $('shop-coins'),
       btnShopMenu: $('btn-shop-menu'),
+      codexPanel: $('codex-panel'),
+      codexTabs: $('codex-tabs'),
+      codexGrid: $('codex-grid'),
+      btnCodexMenu: $('btn-codex-menu'),
+      closeCodexBtn: $('close-codex'),
       closeTrainBtn: $('close-train'),
       closeShopBtn: $('close-shop'),
       towerBuildPanel: $('tower-build-panel'),
@@ -359,8 +593,10 @@ class Game {
     this.ui.btnStartMenu.addEventListener('click', () => { this.audio.play('click'); this.showLevelSelect(); });
     this.ui.btnHeroesMenu.addEventListener('click', () => { this.audio.play('click'); this.openHeroTrain(); });
     this.ui.btnShopMenu.addEventListener('click', () => { this.audio.play('click'); this.openShop(); });
+    this.ui.btnCodexMenu.addEventListener('click', () => { this.audio.play('click'); this.openCodex(); });
     this.ui.closeTrainBtn.addEventListener('click', () => { this.audio.play('click'); this.closeHeroTrain(); });
     this.ui.closeShopBtn.addEventListener('click', () => { this.audio.play('click'); this.closeShop(); });
+    this.ui.closeCodexBtn.addEventListener('click', () => { this.audio.play('click'); this.closeCodex(); });
     this.ui.btnBackMenu.addEventListener('click', () => { this.audio.play('click'); this.showMainMenu(); });
     this.ui.resultNextBtn.addEventListener('click', () => { this.audio.play('click'); this.startLevel(this.currentLevel + 1); });
     this.ui.resultRetryBtn.addEventListener('click', () => { this.audio.play('click'); this.startLevel(this.currentLevel); });
@@ -466,7 +702,7 @@ class Game {
     grid.innerHTML = '';
     LEVEL_CONFIGS.forEach((cfg, idx) => {
       if (cfg.chapter !== this.selectedChapter) return;
-      const unlocked = idx <= this.progress.unlocked;
+      const unlocked = true;
       const stars = this.progress.stars[idx] || 0;
       const card = document.createElement('div');
       card.className = 'level-card' + (unlocked ? '' : ' locked');
@@ -510,6 +746,7 @@ class Game {
     this.heroSelected = false;
     this.heroManager.setSelected(false);
     this.frameLevel();
+    this.startCameraIntro();
     this.audio.startMusic(LEVEL_CONFIGS[levelIndex].chapter);
     this.audio.play('waveStart');
 
@@ -550,6 +787,8 @@ class Game {
     this.towerManager.reset();
     this.monsterManager.reset(this.map.paths);
     this.waveManager.loadLevel(this.currentLevel);
+    this.updateSkyForChapter();
+    resetWeather(this.weather, this);
 
     this.monsterManager.onMonsterKilled = (monster) => {
       const reward = monster.def ? monster.def.reward : 10;
@@ -710,18 +949,18 @@ class Game {
 
   createHitEffect(pos, color) {
     const mesh = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.12, 0),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
+      new THREE.OctahedronGeometry(0.07, 0),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
     );
     mesh.position.copy(pos);
     mesh.position.y += 0.5;
     this.scene.add(mesh);
-    let life = 0.25;
+    let life = 0.2;
     const tick = () => {
       life -= 0.016;
       if (life <= 0) { this.scene.remove(mesh); return; }
-      mesh.scale.multiplyScalar(1.35);
-      mesh.material.opacity = Math.max(0, life * 3.6);
+      mesh.scale.multiplyScalar(1.16);
+      mesh.material.opacity = Math.max(0, life * 5);
       requestAnimationFrame(tick);
     };
     tick();
@@ -729,23 +968,23 @@ class Game {
 
   createDeathEffect(pos, color) {
     const parts = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 6; i++) {
       const p = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.08, 0.08),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 })
+        new THREE.BoxGeometry(0.06, 0.06, 0.06),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
       );
       p.position.copy(pos).add(new THREE.Vector3(
-        (Math.random() - 0.5) * 0.4,
-        0.5 + Math.random() * 0.5,
-        (Math.random() - 0.5) * 0.4
+        (Math.random() - 0.5) * 0.22,
+        0.4 + Math.random() * 0.3,
+        (Math.random() - 0.5) * 0.22
       ));
       this.scene.add(p);
       parts.push({
         mesh: p,
-        vx: (Math.random() - 0.5) * 2.4,
-        vy: 1.6 + Math.random() * 2.2,
-        vz: (Math.random() - 0.5) * 2.4,
-        life: 0.7
+        vx: (Math.random() - 0.5) * 1.4,
+        vy: 0.8 + Math.random() * 1.2,
+        vz: (Math.random() - 0.5) * 1.4,
+        life: 0.55
       });
     }
     const tick = () => {
@@ -757,7 +996,7 @@ class Game {
         part.mesh.position.x += part.vx * 0.016;
         part.mesh.position.y += part.vy * 0.016;
         part.vy -= 5 * 0.016;
-        part.mesh.material.opacity = Math.max(0, part.life / 0.7);
+        part.mesh.material.opacity = Math.max(0, part.life / 0.55);
         part.mesh.rotation.x += 0.2;
         part.mesh.rotation.z += 0.15;
       }
@@ -768,18 +1007,50 @@ class Game {
 
   createMuzzleFlash(pos, color) {
     const mesh = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.16, 0),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false })
+      new THREE.OctahedronGeometry(0.1, 0),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
     );
     mesh.position.copy(pos);
     this.scene.add(mesh);
-    let life = 0.12;
+    let life = 0.1;
     const tick = () => {
       life -= 0.016;
       if (life <= 0) { this.scene.remove(mesh); return; }
-      mesh.scale.multiplyScalar(1.4);
-      mesh.material.opacity = Math.max(0, life * 8);
+      mesh.scale.multiplyScalar(1.22);
+      mesh.material.opacity = Math.max(0, life * 10);
       requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  createInstantCastEffect(pos, color) {
+    const parts = [];
+    for (let i = 0; i < 5; i++) {
+      const p = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.045, 0),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      p.position.copy(pos);
+      this.scene.add(p);
+      const ang = Math.random() * Math.PI * 2;
+      parts.push({
+        mesh: p,
+        dir: new THREE.Vector3(Math.cos(ang), 0.35 + Math.random() * 0.4, Math.sin(ang)),
+        life: 0.3
+      });
+    }
+    const tick = () => {
+      let alive = false;
+      for (const part of parts) {
+        part.life -= 0.016;
+        if (part.life <= 0) { this.scene.remove(part.mesh); continue; }
+        alive = true;
+        part.mesh.position.add(part.dir.clone().multiplyScalar(0.016));
+        part.dir.y -= 0.6 * 0.016;
+        part.mesh.scale.setScalar(1 + (0.3 - part.life) * 2);
+        part.mesh.material.opacity = Math.max(0, part.life / 0.3);
+      }
+      if (alive) requestAnimationFrame(tick);
     };
     tick();
   }
@@ -1158,10 +1429,10 @@ class Game {
   renderHeroTrain() {
     const list = this.ui.heroTrainList;
     list.innerHTML = '';
-    const heroMeta = [
-      { id: 'ranger', name: '王国游侠', icon: '🧝', unlocked: true },
-      { id: 'mage', name: '宫廷法师', icon: '🧙', unlocked: this.progress.unlocked >= 3 }
-    ];
+    const heroMeta = HERO_META.map(m => ({
+      ...m,
+      unlocked: m.id === 'ranger' || this.progress.unlocked >= 3
+    }));
     for (const meta of heroMeta) {
       const level = this.progress.heroLevels[meta.id] || 1;
       const cost = level >= 30 ? 0 : 30 + level * 20;
@@ -1172,10 +1443,11 @@ class Game {
       const card = document.createElement('div');
       card.className = 'train-card' + (meta.unlocked ? '' : ' locked');
       card.innerHTML = `
-        <div class="train-icon">${meta.icon}</div>
+        <img class="train-portrait" src="textures/portraits/${meta.portrait}" alt="${meta.name}">
         <div class="train-name">${meta.name}</div>
         <div class="train-level">Lv.${level}</div>
         <div class="train-stat">攻击 ${dmg} · 移速 ${spd.toFixed(2)}</div>
+        <div class="train-stat">${meta.skill}</div>
         <button class="train-upgrade" ${meta.unlocked && level < 30 ? '' : 'disabled'}>${level >= 30 ? '满级' : `升级 ${cost} 金币`}</button>
       `;
       if (meta.unlocked && level < 30) {
@@ -1226,6 +1498,87 @@ class Game {
 
   closeShop() {
     this.ui.shopPanel.style.display = 'none';
+  }
+
+  openCodex() {
+    this.ui.codexPanel.style.display = 'flex';
+    this.renderCodex();
+  }
+
+  closeCodex() {
+    this.ui.codexPanel.style.display = 'none';
+  }
+
+  renderCodex() {
+    this.ui.codexTabs.innerHTML = '';
+    const tabs = [
+      { id: 'heroes', name: '英雄' },
+      { id: 'towers', name: '防御塔' },
+      { id: 'monsters', name: '怪物' }
+    ];
+    for (const tab of tabs) {
+      const btn = document.createElement('button');
+      btn.className = 'chapter-tab';
+      btn.textContent = tab.name;
+      btn.dataset.tab = tab.id;
+      btn.addEventListener('click', () => {
+        this.audio.play('click');
+        this.showCodexTab(tab.id);
+      });
+      this.ui.codexTabs.appendChild(btn);
+    }
+    this.showCodexTab('heroes');
+  }
+
+  showCodexTab(tabId) {
+    this.ui.codexTabs.querySelectorAll('.chapter-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tabId);
+    });
+    const grid = this.ui.codexGrid;
+    grid.innerHTML = '';
+    const addCard = (portrait, name, desc, locked = false) => {
+      const card = document.createElement('div');
+      card.className = 'codex-card' + (locked ? ' locked' : '');
+      card.innerHTML = `
+        <img class="codex-portrait" src="textures/portraits/${portrait}" alt="${name}">
+        <div class="codex-name">${name}</div>
+        <div class="codex-desc">${desc}</div>
+      `;
+      grid.appendChild(card);
+    };
+
+    if (tabId === 'heroes') {
+      for (const meta of HERO_META) {
+        const unlocked = meta.id === 'ranger' || this.progress.unlocked >= 3;
+        addCard(
+          meta.portrait,
+          meta.name,
+          `${meta.skill}${unlocked ? '' : ' · 完成 3003 解锁'}`,
+          !unlocked
+        );
+      }
+    } else if (tabId === 'towers') {
+      const defs = this.towerManager.towerDefs || {};
+      for (const [type, def] of Object.entries(defs)) {
+        addCard(
+          `tower_${type}.png`,
+          def.name,
+          `${def.levels[0].desc} · 满级：${def.levels[2].desc}`
+        );
+      }
+    } else {
+      for (const [key, def] of Object.entries(MONSTER_DEFS)) {
+        const tags = [
+          def.isBoss ? 'BOSS' : (def.flying ? '飞行' : (def.undead ? '亡灵' : '地面')),
+          def.isBoss ? '' : (def.size[0] >= 0.4 ? '精英' : '')
+        ].filter(Boolean).join(' · ');
+        addCard(
+          MONSTER_PORTRAITS[key] || 'monster_goblin.png',
+          def.name,
+          `${def.hp} HP · ${def.speed} 速 · ${def.reward} 金币${tags ? ' · ' + tags : ''}`
+        );
+      }
+    }
   }
 
   requestNextWave() {
@@ -1626,8 +1979,15 @@ class Game {
       this.updateMusicIntensity();
     }
 
+    if (this.cameraIntro) this.cameraIntro.elapsed += rawDt;
+    this.worldTime += rawDt;
+    this.worldGroup.position.y = Math.sin(this.worldTime * 0.35) * 0.07;
     this.updateCamera();
-    this.renderer.render(this.scene, this.camera);
+    if (this.sky) updateSky(this.sky, rawDt);
+    if (this.map && this.map.water) updateWater(this.map.water, rawDt);
+    if (this.map && this.map.ambient) updateAmbient(this.map.ambient, rawDt);
+    if (this.weather) updateWeather(this.weather, dt, this);
+    this.renderSceneWithEdges();
   }
 
   updateMusicIntensity() {

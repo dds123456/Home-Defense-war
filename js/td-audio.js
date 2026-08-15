@@ -59,6 +59,8 @@ export class AudioManager {
     this.musicIntensity = 0;
     this.chapter = 1;
     this.paused = false;
+    this.rainGain = null;
+    this.rainSource = null;
   }
 
   ensureCtx() {
@@ -130,8 +132,49 @@ export class AudioManager {
       case 'defeat': t({ freq: 400, endFreq: 140, type: 'sawtooth', dur: 0.8, vol: 0.2 }); break;
       case 'item': t({ freq: 932, type: 'triangle', dur: 0.12, vol: 0.18 }); t({ freq: 1245, type: 'sine', dur: 0.14, vol: 0.16, delay: 0.08 }); break;
       case 'freeze': t({ freq: 2300, type: 'sine', dur: 0.14, vol: 0.15 }); t({ freq: 1800, type: 'sine', dur: 0.2, vol: 0.1, delay: 0.06 }); break;
+      case 'rainStart': n({ dur: 0.7, vol: 0.2, filterFreq: 1600, type: 'bandpass' }); break;
+      case 'thunder': n({ dur: 1.4, vol: 0.6, filterFreq: 90 }); t({ freq: 70, endFreq: 26, type: 'sine', dur: 1.5, vol: 0.5 }); break;
       default: break;
     }
+  }
+
+  startRainLoop() {
+    const ctx = this.ensureCtx();
+    if (!ctx || this.rainSource || this.settings.muted) return;
+    const dur = 2;
+    const size = Math.floor(ctx.sampleRate * dur);
+    const buffer = ctx.createBuffer(1, size, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    const high = ctx.createBiquadFilter();
+    high.type = 'highpass';
+    high.frequency.value = 320;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = 950;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.09, ctx.currentTime + 1.2);
+    src.connect(high).connect(low).connect(gain).connect(this.sfxGain);
+    src.start();
+    this.rainSource = src;
+    this.rainGain = gain;
+  }
+
+  stopRainLoop() {
+    if (!this.ctx || !this.rainSource) return;
+    const src = this.rainSource;
+    const gain = this.rainGain;
+    this.rainSource = null;
+    this.rainGain = null;
+    if (gain) gain.gain.cancelScheduledValues(this.ctx.currentTime);
+    if (gain) gain.gain.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 0.6);
+    setTimeout(() => {
+      try { src.stop(); } catch (e) { /* ignore */ }
+    }, 700);
   }
 
   startMusic(chapter) {
