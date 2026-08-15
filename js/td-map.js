@@ -3,7 +3,13 @@
  * 全图可建造：仅道路、基地、树木、岩石占用格子不可放置
  */
 import * as THREE from 'three';
-import { toonMaterial, CHAPTER_PALETTES } from './td-style.js';
+import { toonMaterial, CHAPTER_PALETTES, applyTextureMap } from './td-style.js';
+
+const MAP_TEXTURES = {
+  1: { grass: 'textures/map/grass_tile.png', path: 'textures/map/road_stone_slab.png', dirt: 'textures/map/minimal_cobble.png' },
+  2: { grass: 'textures/map/swamp_bubbles.png', path: 'textures/map/scene_crystal_snow_floor.png', dirt: 'textures/map/minimal_cobble.png' },
+  3: { grass: 'textures/map/lava_tile.png', path: 'textures/map/lava_crack_stone.png', dirt: 'textures/map/minimal_lava.png' }
+};
 
 function expandPath(corners) {
   const cells = [];
@@ -223,9 +229,14 @@ export class TdMap {
     const dirtMat = toonMaterial(this.theme.dirt, { roughness: 0.95 });
     this.materials.grass = grassMat;
     this.materials.dirt = dirtMat;
+    const tex = MAP_TEXTURES[this.chapter] || MAP_TEXTURES[1];
+    applyTextureMap(grassMat, tex.grass);
+    applyTextureMap(dirtMat, tex.dirt);
 
     const baseGeo = new THREE.BoxGeometry(this.gridW + 4, 0.5, this.gridH + 4);
-    const baseMesh = new THREE.Mesh(baseGeo, toonMaterial('#6b5b52', { roughness: 0.95 }));
+    const baseMat = toonMaterial('#6b5b52', { roughness: 0.95 });
+    applyTextureMap(baseMat, tex.dirt);
+    const baseMesh = new THREE.Mesh(baseGeo, baseMat);
     baseMesh.position.set(this.gridW / 2, -0.5, this.gridH / 2);
     baseMesh.receiveShadow = true;
     this.mapGroup.add(baseMesh);
@@ -254,6 +265,8 @@ export class TdMap {
   buildPaths() {
     const pathMat = toonMaterial(this.theme.path, { roughness: 0.75 });
     this.materials.path = pathMat;
+    const tex = MAP_TEXTURES[this.chapter] || MAP_TEXTURES[1];
+    applyTextureMap(pathMat, tex.path);
     for (const p of this.paths) {
       for (const c of p.cells) {
         const geo = new THREE.BoxGeometry(0.88, 0.21, 0.88);

@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { toonMaterial } from './td-style.js';
+import { createMonsterSprite, setMonsterSpriteMode, updateMonsterSprite } from './td-anim.js';
 
 // 怪物定义
 export const MONSTER_DEFS = {
@@ -66,6 +67,10 @@ export class MonsterManager {
     if (!path) return null;
 
     const mesh = this.buildMonsterMesh(def);
+    const usesGodotSprite = typeKey === 'goblin' || typeKey === 'fastGoblin';
+    if (usesGodotSprite && mesh.userData.torsoGroup) {
+      mesh.userData.torsoGroup.visible = false;
+    }
     const startPoint = path.points[0].clone();
     mesh.position.copy(startPoint);
     // 怪物身高约为防御塔的一半（普通小兵约 0.55 格，BOSS 约 1.05 格）
@@ -101,8 +106,17 @@ export class MonsterManager {
       lastPos: null,
       animTime: 0,
       visualScale: scale,
+      spriteAnim: null,
       hpBar: null
     };
+
+    if (usesGodotSprite) {
+      const anim = createMonsterSprite(targetH, () => {
+        if (mesh.userData.torsoGroup) mesh.userData.torsoGroup.visible = true;
+      });
+      mesh.add(anim.sprite);
+      monster.spriteAnim = anim;
+    }
 
     if (opts.startProgress != null) {
       monster.pathProgress = Math.max(0, Math.min(opts.startProgress, path.length - 0.1));
@@ -126,6 +140,7 @@ export class MonsterManager {
     const limbs = {};
     const torsoGroup = new THREE.Group();
     group.add(torsoGroup);
+    group.userData.torsoGroup = torsoGroup;
     const isQuad = def.type === 'wolfRider' || def.type === 'hellHound';
     const isGhost = def.type === 'ghost';
 
@@ -570,6 +585,7 @@ export class MonsterManager {
     if (!opts.silent && this.game && this.game.showDamageNumber) {
       this.game.showDamageNumber(monster, finalDmg);
       if (this.game.createHitEffect) this.game.createHitEffect(monster.mesh.position.clone(), '#ffe9b0');
+      if (monster.spriteAnim) setMonsterSpriteMode(monster.spriteAnim, 'hit', 0.35);
     }
     monster.hp -= finalDmg;
 
@@ -590,6 +606,7 @@ export class MonsterManager {
   updateVisuals(dt) {
     for (const m of this.monsters) {
       if (m.dead) continue;
+      updateMonsterSprite(m.spriteAnim, dt);
       const limbs = m.mesh.userData.limbs;
       if (!limbs) continue;
 

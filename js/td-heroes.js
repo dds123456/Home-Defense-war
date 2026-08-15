@@ -101,6 +101,23 @@ export class HeroManager {
     const group = new THREE.Group();
     const accent = index === 0 ? '#ffd66e' : '#b28cff';
     const mat = toonMaterial(def.color, { roughness: 0.45 });
+    const limbMat = toonMaterial('#4a4f68', { roughness: 0.7 });
+    const limbs = {};
+
+    const makePivot = (x, y, w, h, material, z = 0) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, y, z);
+      const limb = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.14), material);
+      limb.position.y = -h / 2;
+      limb.castShadow = true;
+      pivot.add(limb);
+      group.add(pivot);
+      return pivot;
+    };
+    limbs.leftLeg = makePivot(-0.13, 0.27, 0.1, 0.34, limbMat);
+    limbs.rightLeg = makePivot(0.13, 0.27, 0.1, 0.34, limbMat);
+    limbs.leftArm = makePivot(-0.27, 0.84, 0.08, 0.26, limbMat);
+    limbs.rightArm = makePivot(0.27, 0.84, 0.08, 0.26, limbMat);
 
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.62, 0.32), mat);
     body.position.y = 0.56;
@@ -164,6 +181,8 @@ export class HeroManager {
     const hero = {
       index, id: def.id, def, mesh: group, level,
       ring,
+      limbs,
+      animTime: 0,
       damage: def.damage * dmgBonus,
       atkSpeed: def.atkSpeed, range: def.range,
       speed: def.speed * speedBonus,
@@ -365,8 +384,24 @@ export class HeroManager {
 
   updateVisuals(dt) {
     for (const hero of this.heroes) {
-      if (this.moveTarget || this.path.length > 0) {
-        hero.mesh.position.y += Math.sin(Date.now() * 0.01) * 0.005;
+      hero.animTime = (hero.animTime || 0) + dt;
+      const moving = !!this.moveTarget || this.path.length > 0;
+      const limbs = hero.limbs;
+      if (!limbs) continue;
+      const t = hero.animTime;
+      if (moving) {
+        const swing = Math.sin(t * 9) * 0.55;
+        limbs.leftLeg.rotation.x = swing;
+        limbs.rightLeg.rotation.x = -swing;
+        limbs.leftArm.rotation.x = -swing * 0.85;
+        limbs.rightArm.rotation.x = swing * 0.85;
+        hero.mesh.position.y = 0.2 + Math.abs(Math.sin(t * 9)) * 0.05;
+      } else {
+        limbs.leftLeg.rotation.x = 0;
+        limbs.rightLeg.rotation.x = 0;
+        limbs.leftArm.rotation.x = 0;
+        limbs.rightArm.rotation.x = 0;
+        hero.mesh.position.y = 0.2;
       }
     }
   }

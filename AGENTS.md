@@ -29,7 +29,10 @@ js/td-heroes.js       # 英雄系统：2英雄、米哈游风建模、全图寻�
 js/td-waves.js        # 波次系统：8 关 20~28 波配置、双路径奇偶分流、BOSS 波
 js/td-audio.js        # Web Audio 音频：程序化 SFX、章节自适应音乐、音量设置
 js/td-style.js        # 米哈游风风格系统：toon 渐变材质、全局配色
+js/td-anim.js         # Godot 精灵表动画：小怪奔跑/受击、面向相机精灵
 js/td-main.js         # 主游戏引擎：准备阶段、暂停、道具、结算奖励、相机控制
+textures/map/         # 四角地块地图纹理（草/路/熔岩/沼泽等）
+textures/anim/        # 小怪奔跑/受击精灵表（已压缩）
 tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file）
 ```
 

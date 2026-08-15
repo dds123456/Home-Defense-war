@@ -4,6 +4,44 @@
 import * as THREE from 'three';
 
 let gradientTexture = null;
+const textureCache = new Map();
+
+export function loadPixelTexture(path, onReady, onError) {
+  if (typeof location !== 'undefined' && location.protocol === 'file:') {
+    if (onError) onError();
+    return null;
+  }
+  if (textureCache.has(path)) {
+    const cached = textureCache.get(path);
+    if (onReady) onReady(cached);
+    return cached;
+  }
+  const loader = new THREE.TextureLoader();
+  const texture = loader.load(path, (tex) => {
+    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    textureCache.set(path, tex);
+    if (onReady) onReady(tex);
+  }, undefined, () => {
+    textureCache.delete(path);
+    if (onError) onError();
+  });
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  textureCache.set(path, texture);
+  return texture;
+}
+
+export function applyTextureMap(material, path) {
+  loadPixelTexture(path, (tex) => {
+    if (!tex) return;
+    material.map = tex;
+    material.color.set('#ffffff');
+    material.needsUpdate = true;
+  });
+}
 
 export function getToonGradient() {
   if (gradientTexture) return gradientTexture;
