@@ -30,8 +30,9 @@ js/td-waves.js        # 波次系统：8 关 20~28 波配置、双路径奇偶�
 js/td-audio.js        # Web Audio 音频：程序化 SFX、章节自适应音乐、音量设置
 js/td-style.js        # 米哈游风风格系统：toon 渐变材质、全局配色
 js/td-anim.js         # Godot 精灵表动画：小怪奔跑/受击、面向相机精灵
+js/td-spritegen.js    # 程序化 8 帧 / 64 色角色奔跑精灵表
 js/td-main.js         # 主游戏引擎：准备阶段、暂停、道具、结算奖励、相机控制
-textures/map/         # 四角地块地图纹理（草/路/熔岩/沼泽等）
+textures/map/         # 四角地块地图纹理（草/路/熔岩/沼泽等，混合贴图）
 textures/anim/        # 小怪奔跑/受击精灵表（已压缩）
 tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file）
 ```
@@ -42,6 +43,7 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 - 8 个关卡、3 个章节、单/双路径，双路径关卡奇数波 A 路、偶数波 B 路
 - 全图自由建造：除道路、基地水晶、树木、岩石外均可放置防御塔
 - 基地为发光水晶，米哈游风 toon 材质、主题配色与树木岩石装饰
+- 地面采用至少 3 种地图纹理混合：草地 + 碎石补丁 + 道路/熔岩/沼泽路径
 
 ### 防御塔（td-towers.js）
 - 箭塔：单体快速攻击、Lv2 穿透 1 目标、Lv3 多重射击 2 目标
@@ -59,6 +61,7 @@ tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file�
 ### 英雄（td-heroes.js）
 - 王国游侠（穿透箭）与宫廷法师（火焰雨，完成 3003 解锁）
 - 全图点击移动，网格 BFS 自动绕开防御塔；遇怪自动普攻
+- 英雄与普通怪物使用 8 帧 / 64 色程序化奔跑精灵表，英雄拥有独立四肢奔跑动效
 - 每局结算获得英雄经验，每 100 经验升 1 级，提升攻击与移速
 - 全局受击/击杀/开火特效与米哈游风 UI 风格统一
 

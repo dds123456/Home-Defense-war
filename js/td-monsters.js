@@ -4,7 +4,15 @@
  */
 import * as THREE from 'three';
 import { toonMaterial } from './td-style.js';
-import { createMonsterSprite, setMonsterSpriteMode, updateMonsterSprite } from './td-anim.js';
+import {
+  createMonsterSprite,
+  setMonsterSpriteMode,
+  updateMonsterSprite,
+  createCanvasSprite,
+  setCanvasSpriteMode,
+  updateCanvasSprite
+} from './td-anim.js';
+import { getMonsterSheet } from './td-spritegen.js';
 
 // 怪物定义
 export const MONSTER_DEFS = {
@@ -68,7 +76,8 @@ export class MonsterManager {
 
     const mesh = this.buildMonsterMesh(def);
     const usesGodotSprite = typeKey === 'goblin' || typeKey === 'fastGoblin';
-    if (usesGodotSprite && mesh.userData.torsoGroup) {
+    const usesGeneratedSprite = !usesGodotSprite;
+    if ((usesGodotSprite || usesGeneratedSprite) && mesh.userData.torsoGroup) {
       mesh.userData.torsoGroup.visible = false;
     }
     const startPoint = path.points[0].clone();
@@ -114,6 +123,12 @@ export class MonsterManager {
       const anim = createMonsterSprite(targetH, () => {
         if (mesh.userData.torsoGroup) mesh.userData.torsoGroup.visible = true;
       });
+      mesh.add(anim.sprite);
+      monster.spriteAnim = anim;
+    } else if (usesGeneratedSprite) {
+      const runSheet = getMonsterSheet(def, 'run');
+      const hitSheet = getMonsterSheet(def, 'hit');
+      const anim = createCanvasSprite(runSheet, hitSheet, targetH);
       mesh.add(anim.sprite);
       monster.spriteAnim = anim;
     }
@@ -585,7 +600,13 @@ export class MonsterManager {
     if (!opts.silent && this.game && this.game.showDamageNumber) {
       this.game.showDamageNumber(monster, finalDmg);
       if (this.game.createHitEffect) this.game.createHitEffect(monster.mesh.position.clone(), '#ffe9b0');
-      if (monster.spriteAnim) setMonsterSpriteMode(monster.spriteAnim, 'hit', 0.35);
+      if (monster.spriteAnim) {
+        if (monster.spriteAnim.sheetType === 'canvas') {
+          setCanvasSpriteMode(monster.spriteAnim, 'hit', 0.35);
+        } else {
+          setMonsterSpriteMode(monster.spriteAnim, 'hit', 0.35);
+        }
+      }
     }
     monster.hp -= finalDmg;
 
@@ -606,7 +627,10 @@ export class MonsterManager {
   updateVisuals(dt) {
     for (const m of this.monsters) {
       if (m.dead) continue;
-      updateMonsterSprite(m.spriteAnim, dt);
+      if (m.spriteAnim) {
+        if (m.spriteAnim.sheetType === 'canvas') updateCanvasSprite(m.spriteAnim, dt, 1);
+        else updateMonsterSprite(m.spriteAnim, dt);
+      }
       const limbs = m.mesh.userData.limbs;
       if (!limbs) continue;
 

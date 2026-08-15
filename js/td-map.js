@@ -227,11 +227,14 @@ export class TdMap {
   buildTerrain() {
     const grassMat = toonMaterial(this.theme.grass, { roughness: 0.9 });
     const dirtMat = toonMaterial(this.theme.dirt, { roughness: 0.95 });
+    const patchMat = toonMaterial(this.theme.dirt, { roughness: 0.92 });
     this.materials.grass = grassMat;
     this.materials.dirt = dirtMat;
+    this.materials.patch = patchMat;
     const tex = MAP_TEXTURES[this.chapter] || MAP_TEXTURES[1];
     applyTextureMap(grassMat, tex.grass);
     applyTextureMap(dirtMat, tex.dirt);
+    applyTextureMap(patchMat, tex.dirt);
 
     const baseGeo = new THREE.BoxGeometry(this.gridW + 4, 0.5, this.gridH + 4);
     const baseMat = toonMaterial('#6b5b52', { roughness: 0.95 });
@@ -245,7 +248,8 @@ export class TdMap {
     for (let x = 0; x < this.gridW; x++) {
       for (let z = 0; z < this.gridH; z++) {
         const isPath = this.pathCellSet.has(this.cellKey(x, z));
-        const mat = isPath ? dirtMat : grassMat;
+        let mat = isPath ? dirtMat : grassMat;
+        if (!isPath && (x * 31 + z * 17) % 7 === 0) mat = patchMat;
         const cell = new THREE.Mesh(cellGeo, mat);
         cell.position.set(x + 0.5, 0.1, z + 0.5);
         cell.receiveShadow = true;
@@ -264,13 +268,17 @@ export class TdMap {
 
   buildPaths() {
     const pathMat = toonMaterial(this.theme.path, { roughness: 0.75 });
+    const pathPatchMat = toonMaterial(this.theme.dirt, { roughness: 0.85 });
     this.materials.path = pathMat;
+    this.materials.pathPatch = pathPatchMat;
     const tex = MAP_TEXTURES[this.chapter] || MAP_TEXTURES[1];
     applyTextureMap(pathMat, tex.path);
+    applyTextureMap(pathPatchMat, tex.dirt);
     for (const p of this.paths) {
       for (const c of p.cells) {
         const geo = new THREE.BoxGeometry(0.88, 0.21, 0.88);
-        const mesh = new THREE.Mesh(geo, pathMat);
+        const mat = (c.x + c.z) % 4 === 0 ? pathPatchMat : pathMat;
+        const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(c.x + 0.5, 0.2, c.z + 0.5);
         mesh.receiveShadow = true;
         this.mapGroup.add(mesh);

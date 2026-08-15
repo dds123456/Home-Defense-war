@@ -3,6 +3,8 @@
  */
 import * as THREE from 'three';
 import { toonMaterial } from './td-style.js';
+import { createCanvasSprite, updateCanvasSprite, setCanvasSpriteMode } from './td-anim.js';
+import { getHeroSheet } from './td-spritegen.js';
 
 const HERO_DEFS = [
   {
@@ -99,6 +101,8 @@ export class HeroManager {
     const dmgBonus = 1 + (level - 1) * 0.02;
     const speedBonus = 1 + (level - 1) * 0.01;
     const group = new THREE.Group();
+    const bodyGroup = new THREE.Group();
+    group.add(bodyGroup);
     const accent = index === 0 ? '#ffd66e' : '#b28cff';
     const mat = toonMaterial(def.color, { roughness: 0.45 });
     const limbMat = toonMaterial('#4a4f68', { roughness: 0.7 });
@@ -111,7 +115,7 @@ export class HeroManager {
       limb.position.y = -h / 2;
       limb.castShadow = true;
       pivot.add(limb);
-      group.add(pivot);
+      bodyGroup.add(pivot);
       return pivot;
     };
     limbs.leftLeg = makePivot(-0.13, 0.27, 0.1, 0.34, limbMat);
@@ -122,47 +126,47 @@ export class HeroManager {
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.62, 0.32), mat);
     body.position.y = 0.56;
     body.castShadow = true;
-    group.add(body);
+    bodyGroup.add(body);
 
     const chest = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.16), toonMaterial(accent, { emissive: accent, emissiveIntensity: 0.18 }));
     chest.position.y = 0.62;
     chest.position.z = 0.02;
-    group.add(chest);
+    bodyGroup.add(chest);
 
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 8), toonMaterial('#ffe8d6'));
     head.position.y = 1.02;
     head.castShadow = true;
-    group.add(head);
+    bodyGroup.add(head);
 
     const hair = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.32, 8), toonMaterial(index === 0 ? '#f2c94c' : '#a78bfa', { emissive: accent, emissiveIntensity: 0.12 }));
     hair.position.y = 1.2;
-    group.add(hair);
+    bodyGroup.add(hair);
 
     const eyeGeo = new THREE.SphereGeometry(0.035, 6, 6);
     const eyeMat = new THREE.MeshBasicMaterial({ color: '#4a3f8f' });
     const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
     eyeL.position.set(-0.09, 1.05, 0.17);
-    group.add(eyeL);
+    bodyGroup.add(eyeL);
     const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
     eyeR.position.set(0.09, 1.05, 0.17);
-    group.add(eyeR);
+    bodyGroup.add(eyeR);
 
     const hat = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.3, 8), toonMaterial('#5d3a1a', { roughness: 0.6 }));
     hat.position.y = 1.28;
-    group.add(hat);
+    bodyGroup.add(hat);
 
     if (index === 0) {
       const bow = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.035, 6, 8, Math.PI * 1.2), toonMaterial('#f2c94c', { emissive: '#ffd66e', emissiveIntensity: 0.25 }));
       bow.rotation.z = Math.PI / 2;
       bow.position.set(0.28, 0.62, 0);
-      group.add(bow);
+      bodyGroup.add(bow);
     } else {
       const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.9, 6), toonMaterial('#5d3a1a'));
       staff.position.set(0.28, 0.5, 0);
-      group.add(staff);
+      bodyGroup.add(staff);
       const orb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), new THREE.MeshBasicMaterial({ color: '#b28cff' }));
       orb.position.set(0.28, 0.95, 0);
-      group.add(orb);
+      bodyGroup.add(orb);
     }
 
     group.position.copy(spawnPos);
@@ -176,6 +180,13 @@ export class HeroManager {
     ring.position.y = 0.06;
     ring.visible = false;
     group.add(ring);
+
+    const runSheet = getHeroSheet(index, 'run');
+    const hitSheet = getHeroSheet(index, 'hit');
+    const spriteAnim = createCanvasSprite(runSheet, hitSheet, 1.05);
+    spriteAnim.sprite.position.y = 0.85;
+    group.add(spriteAnim.sprite);
+    bodyGroup.visible = false;
     this.heroGroup.add(group);
 
     const hero = {
@@ -183,6 +194,8 @@ export class HeroManager {
       ring,
       limbs,
       animTime: 0,
+      bodyGroup,
+      spriteAnim,
       damage: def.damage * dmgBonus,
       atkSpeed: def.atkSpeed, range: def.range,
       speed: def.speed * speedBonus,
@@ -283,6 +296,7 @@ export class HeroManager {
     if (!hero || hero.skillCooldown > 0) return;
     const count = hero.def.skill.execute(hero, this.game);
     hero.skillCooldown = hero.def.skill.cooldown;
+    if (hero.spriteAnim) setCanvasSpriteMode(hero.spriteAnim, 'hit', 0.4);
     this.game.showFloatingText(`${hero.def.skill.name}!`, '#ffd700');
     if (this.game.audio) this.game.audio.play('heroSkill');
     this.game.updateHeroUI();
@@ -386,6 +400,7 @@ export class HeroManager {
     for (const hero of this.heroes) {
       hero.animTime = (hero.animTime || 0) + dt;
       const moving = !!this.moveTarget || this.path.length > 0;
+      if (hero.spriteAnim) updateCanvasSprite(hero.spriteAnim, dt, moving ? 1 : 0.4);
       const limbs = hero.limbs;
       if (!limbs) continue;
       const t = hero.animTime;
