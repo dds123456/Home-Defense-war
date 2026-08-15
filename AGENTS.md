@@ -34,7 +34,9 @@ js/td-spritegen.js    # 程序化 8 帧 / 64 色角色奔跑精灵表
 js/td-main.js         # 主游戏引擎：准备阶段、暂停、道具、结算奖励、相机控制
 textures/map/         # 四角地块地图纹理（草/路/熔岩/沼泽等，混合贴图）
 textures/anim/        # 小怪奔跑/受击精灵表（已压缩）
+textures/anim/generated/ # 全角色 8 帧/64 色程序化动效图（PNG 精灵表 + GIF）
 tools/playtest.mjs    # headless Chrome 回归测试（basic/prd/boss/mech/file）
+tools/export-sprites.mjs # 导出全角色程序化精灵表 PNG
 ```
 
 ## 核心系统说明

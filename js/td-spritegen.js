@@ -366,3 +366,13 @@ export function getMonsterSheet(def, mode) {
 export function getHeroSheet(index, mode) {
   return generateCharacterSheet(heroSpriteSpec(index), mode);
 }
+
+if (typeof window !== 'undefined') {
+  window.__spritegen = {
+    generateCharacterSheet,
+    getMonsterSheet,
+    getHeroSheet,
+    heroSpriteSpec,
+    specForMonster
+  };
+}
